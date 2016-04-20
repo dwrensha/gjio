@@ -19,8 +19,35 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#[cfg(unix)]
-pub mod unix;
+use gj::{Promise, PromiseFulfiller};
 
-#[cfg(unix)]
-pub type Reactor = unix::Reactor;
+#[cfg(target_os = "macos")]
+pub mod kqueue;
+
+#[cfg(target_os = "linux")]
+pub mod epoll;
+
+#[cfg(target_os = "macos")]
+pub type Reactor = kqueue::Reactor;
+
+#[cfg(target_os = "linux")]
+pub type Reactor = epoll::Reactor;
+
+pub struct FdObserver {
+    read_fulfiller: Option<PromiseFulfiller<(), ::std::io::Error>>,
+    write_fulfiller: Option<PromiseFulfiller<(), ::std::io::Error>>,
+}
+
+impl FdObserver {
+    pub fn when_becomes_readable(&mut self) -> Promise<(), ::std::io::Error> {
+        let (promise, fulfiller) = Promise::and_fulfiller();
+        self.read_fulfiller = Some(fulfiller);
+        promise
+    }
+
+    pub fn when_becomes_writable(&mut self) -> Promise<(), ::std::io::Error> {
+        let (promise, fulfiller) = Promise::and_fulfiller();
+        self.write_fulfiller = Some(fulfiller);
+        promise
+    }
+}

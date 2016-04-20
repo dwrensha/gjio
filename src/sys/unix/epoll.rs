@@ -21,7 +21,7 @@
 
 use std::os::unix::io::RawFd;
 use handle_table::{HandleTable, Handle};
-use sys::FdObserver;
+use sys::unix::FdObserver;
 use nix::sys::epoll;
 
 pub struct Reactor {
