@@ -1,7 +1,11 @@
 [package]
 name = "gjio"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["David Renshaw <david@sandstorm.io>"]
+license = "MIT"
+repository = "https://github.com/dwrensha/gj"
+
+readme = "README.md"
 
 [dependencies.gj]
 git = "https://github.com/dwrensha/gj.git"
