@@ -59,10 +59,11 @@
 //!```
 
 
-#[macro_use]
-extern crate gj;
-extern crate nix;
+#[macro_use] extern crate gj;
 extern crate time;
+
+#[cfg(unix)]
+extern crate nix;
 
 use std::cell::{RefCell};
 use std::rc::Rc;
@@ -140,7 +141,13 @@ impl <T> AsRef<[u8]> for Slice<T> where T: AsRef<[u8]> {
 }
 
 #[cfg(unix)]
-type RawDescriptor = std::os::unix::io::RawFd;
+type RawDescriptor = ::std::os::unix::io::RawFd;
+
+#[cfg(unix)]
+type SockAddr = ::nix::sys::socket::SockAddr;
+
+#[cfg(windows)]
+type SockAddr = ::std::net::SockAddr;
 
 pub struct EventPort {
     reactor: Rc<RefCell<::sys::Reactor>>,
@@ -193,6 +200,7 @@ impl Network {
                             ::nix::sys::socket::SockAddr::Inet(::nix::sys::socket::InetAddr::from_std(&addr)))
     }
 
+    #[cfg(unix)]
     pub fn get_unix_address<P: AsRef<::std::path::Path>>(&self, addr: P)
                             -> Result<SocketAddress, ::std::io::Error>
     {
@@ -213,11 +221,11 @@ struct SocketListenerInner {
 
 pub struct SocketAddress {
     reactor: Rc<RefCell<::sys::Reactor>>,
-    addr: ::nix::sys::socket::SockAddr,
+    addr: SockAddr,
 }
 
 impl SocketAddress {
-    fn new(reactor: Rc<RefCell<::sys::Reactor>>, addr: ::nix::sys::socket::SockAddr)
+    fn new(reactor: Rc<RefCell<::sys::Reactor>>, addr: SockAddr)
            -> SocketAddress
     {
         SocketAddress {
