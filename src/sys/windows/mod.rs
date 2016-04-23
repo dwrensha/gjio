@@ -19,15 +19,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#[cfg(unix)]
-pub mod unix;
+use gj::{Promise, PromiseFulfiller};
+use std::cell::{RefCell};
+use std::rc::Rc;
 
-#[cfg(unix)]
-pub type Reactor = unix::Reactor;
-
-
-#[cfg(target_os = "windows")]
-pub mod windows;
-
-#[cfg(target_os = "windows")]
-pub type Reactor = windows::Reactor;
+pub struct Reactor {
+    cp: ::miow::iocp::CompletionPort,
+}

@@ -62,8 +62,8 @@
 #[macro_use] extern crate gj;
 extern crate time;
 
-#[cfg(unix)]
 extern crate nix;
+extern crate miow;
 
 use std::cell::{RefCell};
 use std::rc::Rc;

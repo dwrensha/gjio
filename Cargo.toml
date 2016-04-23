@@ -11,5 +11,6 @@ readme = "README.md"
 git = "https://github.com/dwrensha/gj.git"
 
 [dependencies]
-nix = "0.5"
 time = "0.1"
+nix = "0.5"
+miow = "0.1"
