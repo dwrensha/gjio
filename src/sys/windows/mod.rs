@@ -183,7 +183,7 @@ impl SocketListenerInner {
         if ready {
             Promise::ok(SocketStreamInner::new(reactor.clone(), stream))
         } else {
-            let handle = pry!(reactor.borrow_mut().add_socket(&stream,
+            let handle = pry!(reactor.borrow_mut().add_socket(listener,
                                                               read_overlapped,
                                                               ::std::ptr::null_mut()));
 
