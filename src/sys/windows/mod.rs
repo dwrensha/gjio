@@ -178,6 +178,12 @@ pub struct SocketListenerInner {
     pub queue: Option<Promise<(),()>>,
 }
 
+impl Drop for SocketListenerInner {
+    fn drop(&mut self) {
+        self.reactor.borrow_mut().observers.remove(self.handle);
+    }
+}
+
 impl SocketListenerInner {
     fn new(reactor: Rc<RefCell<Reactor>>, listener: ::std::net::TcpListener,
            addr: ::std::net::SocketAddr)
@@ -238,6 +244,12 @@ pub struct SocketStreamInner {
     handle: Handle,
     pub read_queue: Option<Promise<(),()>>,
     pub write_queue: Option<Promise<(),()>>,
+}
+
+impl Drop for SocketStreamInner {
+    fn drop(&mut self) {
+        self.reactor.borrow_mut().observers.remove(self.handle);
+    }
 }
 
 impl SocketStreamInner {
