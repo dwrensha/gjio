@@ -132,16 +132,26 @@ impl SocketAddressInner {
             ::std::net::SocketAddr::V4(_) => pry!(::net2::TcpBuilder::new_v4()),
             ::std::net::SocketAddr::V6(_) => pry!(::net2::TcpBuilder::new_v6()),
         };
-        let mut overlapped = ::miow::Overlapped::zero();
-        let (stream, ready) = unsafe {
-            pry!(builder.connect_overlapped(&self.addr, &mut overlapped))
+
+        let mut read_overlapped = Box::new(::miow::Overlapped::zero());
+        let mut write_overlapped = Box::new(::miow::Overlapped::zero());
+        let handle = pry!(
+            self.reactor.borrow_mut().add_socket(&builder, &mut *read_overlapped,
+                                                 &mut *write_overlapped));
+
+        let (stream, _ready) = unsafe {
+            pry!(builder.connect_overlapped(&self.addr, &mut *write_overlapped))
         };
 
-        if ready {
-            Promise::ok(pry!(SocketStreamInner::new(self.reactor.clone(), stream)))
-        } else {
-            unimplemented!()
-        }
+        let reactor2 = self.reactor.clone();
+        let result = self.reactor.borrow_mut().observers[handle].when_write_done().map(move |_| {
+            Ok(SocketStreamInner::new_already_registered(
+                reactor2, stream,
+                read_overlapped, write_overlapped,
+                handle))
+        });
+
+        result
     }
 
     pub fn listen(&mut self) -> Result<SocketListenerInner, ::std::io::Error> {
@@ -239,6 +249,23 @@ impl SocketStreamInner {
             read_queue: None,
             write_queue: None,
         })
+    }
+
+    fn new_already_registered(reactor: Rc<RefCell<Reactor>>, stream: ::std::net::TcpStream,
+                              read_overlapped: Box<::miow::Overlapped>,
+                              write_overlapped: Box<::miow::Overlapped>,
+                              handle: Handle)
+           -> SocketStreamInner
+    {
+        SocketStreamInner {
+            reactor: reactor,
+            stream: stream,
+            read_overlapped: read_overlapped,
+            write_overlapped: write_overlapped,
+            handle: handle,
+            read_queue: None,
+            write_queue: None,
+        }
     }
 
     pub fn try_read_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
