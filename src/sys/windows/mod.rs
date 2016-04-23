@@ -191,10 +191,7 @@ impl SocketListenerInner {
         let mut accept_addrs = ::miow::net::AcceptAddrsBuf::new();
 
         let &mut SocketListenerInner {
-            reactor: ref reactor,
-            listener: ref mut listener,
-            read_overlapped: ref mut read_overlapped,
-            handle: handle,
+            ref reactor, ref mut listener, ref mut read_overlapped, handle,
             ..
         } =  &mut *inner.borrow_mut();
 
@@ -254,10 +251,8 @@ impl SocketStreamInner {
         use ::miow::net::TcpStreamExt;
 
         let &mut SocketStreamInner {
-            reactor: ref reactor,
-            stream: ref mut stream,
-            read_overlapped: ref mut read_overlapped,
-            handle: handle,
+            ref reactor, ref mut stream,
+            ref mut read_overlapped, handle,
             ..
         } =  &mut *inner.borrow_mut();
 
@@ -282,10 +277,9 @@ impl SocketStreamInner {
         use ::miow::net::TcpStreamExt;
 
         let &mut SocketStreamInner {
-            reactor: ref reactor,
-            stream: ref mut stream,
-            write_overlapped: ref mut write_overlapped,
-            handle: handle,
+            ref reactor,
+            ref stream,
+            ref mut write_overlapped, handle,
             ..
         } =  &mut *inner.borrow_mut();
 
