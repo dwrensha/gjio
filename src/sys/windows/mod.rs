@@ -65,31 +65,32 @@ impl Reactor {
     {
         let timeout = maybe_timeout.map(|t| t.num_milliseconds() as u32); // XXX check for overflow
 
-        //let mut statu
-
-        {
-            let statuses = try!(self.cp.get_many(&mut self.statuses[..], timeout));
-            for status in statuses {
-                let token = status.token();
-                let overlapped = status.overlapped();
-                let bytes_transferred = status.bytes_transferred();
-                let handle = Handle { val: token };
-                if self.observers[handle].read_overlapped == overlapped {
-                    match self.observers[handle].read_fulfiller.take() {
-                        None => (),
-                        Some(f) => f.fulfill(bytes_transferred),
+        match self.cp.get_many(&mut self.statuses[..], timeout) {
+            Err(ref e) if e.kind() == ::std::io::ErrorKind::TimedOut => Ok(()),
+            Err(e) => Err(e),
+            Ok(statuses) => {
+                for status in statuses {
+                    let token = status.token();
+                    let overlapped = status.overlapped();
+                    let bytes_transferred = status.bytes_transferred();
+                    let handle = Handle { val: token };
+                    if self.observers[handle].read_overlapped == overlapped {
+                        match self.observers[handle].read_fulfiller.take() {
+                            None => (),
+                            Some(f) => f.fulfill(bytes_transferred),
+                        }
+                    }
+                    if self.observers[handle].write_overlapped == overlapped {
+                        match self.observers[handle].write_fulfiller.take() {
+                            None => (),
+                            Some(f) => f.fulfill(bytes_transferred),
+                        }
                     }
                 }
-                if self.observers[handle].write_overlapped == overlapped {
-                    match self.observers[handle].write_fulfiller.take() {
-                        None => (),
-                        Some(f) => f.fulfill(bytes_transferred),
-                    }
-                }
-
+                Ok(())
             }
         }
-        Ok(())
+
     }
 
     fn add_socket<T>(&mut self, sock: &T,
