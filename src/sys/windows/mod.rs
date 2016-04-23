@@ -138,7 +138,7 @@ impl SocketAddressInner {
         };
 
         if ready {
-            Promise::ok(SocketStreamInner::new(self.reactor.clone(), stream))
+            Promise::ok(pry!(SocketStreamInner::new(self.reactor.clone(), stream)))
         } else {
             unimplemented!()
         }
@@ -190,43 +190,55 @@ impl SocketListenerInner {
             ..
         } =  &mut *inner.borrow_mut();
 
-        let (stream, ready) = unsafe {
+        let (stream, _ready) = unsafe {
             pry!(listener.accept_overlapped(&builder,
                                             &mut accept_addrs,
                                             read_overlapped))
         };
 
-        if ready {
-            Promise::ok(SocketStreamInner::new(reactor.clone(), stream))
-        } else {
-            let handle = pry!(reactor.borrow_mut().add_socket(listener,
-                                                              read_overlapped,
-                                                              ::std::ptr::null_mut()));
 
-            let reactor2 = reactor.clone();
-            reactor.borrow_mut().observers[handle].when_read_done().map(move |_| {
-                println!("accepted!");
-                Ok(SocketStreamInner::new(reactor2, stream))
-            })
-        }
+        let handle = pry!(reactor.borrow_mut().add_socket(listener,
+                                                          read_overlapped,
+                                                          ::std::ptr::null_mut()));
+
+        let reactor2 = reactor.clone();
+        let result = reactor.borrow_mut().observers[handle].when_read_done().map(move |_| {
+            println!("accepted!");
+            SocketStreamInner::new(reactor2, stream)
+        });
+
+        result
     }
 }
 
 pub struct SocketStreamInner {
     reactor: Rc<RefCell<Reactor>>,
     stream: ::std::net::TcpStream,
+    read_overlapped: Box<::miow::Overlapped>,
+    write_overlapped: Box<::miow::Overlapped>,
+    handle: Handle,
     pub read_queue: Option<Promise<(),()>>,
     pub write_queue: Option<Promise<(),()>>,
 }
 
 impl SocketStreamInner {
-    fn new(reactor: Rc<RefCell<Reactor>>, stream: ::std::net::TcpStream) -> SocketStreamInner {
-        SocketStreamInner {
+    fn new(reactor: Rc<RefCell<Reactor>>, stream: ::std::net::TcpStream)
+           -> Result<SocketStreamInner, ::std::io::Error>
+    {
+        let mut read_overlapped = Box::new(::miow::Overlapped::zero());
+        let mut write_overlapped = Box::new(::miow::Overlapped::zero());
+        let handle = try!(
+            reactor.borrow_mut().add_socket(&stream, &mut *read_overlapped,
+                                            &mut *write_overlapped));
+        Ok(SocketStreamInner {
             reactor: reactor,
             stream: stream,
+            read_overlapped: read_overlapped,
+            write_overlapped: write_overlapped,
+            handle: handle,
             read_queue: None,
             write_queue: None,
-        }
+        })
     }
 
     pub fn try_read_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
@@ -237,11 +249,26 @@ impl SocketStreamInner {
         where T: AsMut<[u8]>
     {
         use ::miow::net::TcpStreamExt;
-        let mut overlapped = ::miow::Overlapped::zero();
-        let pending = unsafe {
-            pry!(inner.borrow().stream.read_overlapped(buf.as_mut(), &mut overlapped))
+
+        let &mut SocketStreamInner {
+            reactor: ref reactor,
+            stream: ref mut stream,
+            read_overlapped: ref mut read_overlapped,
+            handle: handle,
+            ..
+        } =  &mut *inner.borrow_mut();
+
+        let _done = unsafe {
+            pry!(stream.read_overlapped(buf.as_mut(), read_overlapped))
         };
-        unimplemented!()
+
+
+        let result = reactor.borrow_mut().observers[handle].when_read_done().map(move |n| {
+            println!("read transferred this many bytes: {}", n);
+            Ok((buf, n as usize))
+        });
+
+        result
     }
 
     pub fn write_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
@@ -250,11 +277,24 @@ impl SocketStreamInner {
         where T: AsRef<[u8]>
     {
         use ::miow::net::TcpStreamExt;
-        let mut overlapped = ::miow::Overlapped::zero();
-        let pending = unsafe {
-            pry!(inner.borrow().stream.write_overlapped(buf.as_ref(), &mut overlapped))
+
+        let &mut SocketStreamInner {
+            reactor: ref reactor,
+            stream: ref mut stream,
+            write_overlapped: ref mut write_overlapped,
+            handle: handle,
+            ..
+        } =  &mut *inner.borrow_mut();
+
+        let _done = unsafe {
+            pry!(stream.write_overlapped(buf.as_ref(), write_overlapped))
         };
 
-        unimplemented!()
+        let result = reactor.borrow_mut().observers[handle].when_write_done().map(move |n| {
+            println!("write transferred this many bytes: {}", n);
+            Ok(buf)
+        });
+
+        result
     }
 }
