@@ -69,26 +69,6 @@ use std::cell::{RefCell};
 use std::rc::Rc;
 use std::collections::BinaryHeap;
 use gj::{Promise, PromiseFulfiller};
-use handle_table::{Handle};
-
-macro_rules! try_syscall {
-    ($expr:expr) => (
-        {
-            let result;
-            loop {
-                match $expr {
-                    Ok(v) => {
-                        result = v;
-                        break;
-                    }
-                    Err(e) if e.errno() == ::nix::Errno::EINTR => continue,
-                    Err(e) => return Err(::std::convert::From::from(e))
-                }
-            }
-            result
-        }
-    )
-}
 
 mod handle_table;
 mod sys;
@@ -144,10 +124,7 @@ impl <T> AsRef<[u8]> for Slice<T> where T: AsRef<[u8]> {
 type RawDescriptor = ::std::os::unix::io::RawFd;
 
 #[cfg(unix)]
-type SockAddr = ::nix::sys::socket::SockAddr;
-
-#[cfg(windows)]
-type SockAddr = ::std::net::SockAddr;
+type SocketAddressInner = sys::unix::SocketAddressInner;
 
 pub struct EventPort {
     reactor: Rc<RefCell<::sys::Reactor>>,
@@ -196,102 +173,37 @@ impl Network {
 
 
     pub fn get_tcp_address(&self, addr: ::std::net::SocketAddr) -> SocketAddress {
-        SocketAddress::new(self.reactor.clone(),
-                            ::nix::sys::socket::SockAddr::Inet(::nix::sys::socket::InetAddr::from_std(&addr)))
+        SocketAddress::new(SocketAddressInner::new_tcp(self.reactor.clone(), addr))
     }
 
     #[cfg(unix)]
     pub fn get_unix_address<P: AsRef<::std::path::Path>>(&self, addr: P)
                             -> Result<SocketAddress, ::std::io::Error>
     {
-        // In what situations does this fail?
-        Ok(SocketAddress::new(self.reactor.clone(),
-                               ::nix::sys::socket::SockAddr::Unix(
-                                   try!(::nix::sys::socket::UnixAddr::new(addr.as_ref())))))
+        Ok(SocketAddress::new(try!(SocketAddressInner::new_unix(self.reactor.clone(), addr))))
     }
 }
 
-struct SocketListenerInner {
-    reactor: Rc<RefCell<::sys::Reactor>>,
-    handle: Handle,
-    descriptor: RawDescriptor,
-    queue: Option<Promise<(),()>>,
-}
-
+#[cfg(unix)]
+type SocketListenerInner = sys::unix::SocketListenerInner;
 
 pub struct SocketAddress {
-    reactor: Rc<RefCell<::sys::Reactor>>,
-    addr: SockAddr,
+    inner: SocketAddressInner,
 }
 
 impl SocketAddress {
-    fn new(reactor: Rc<RefCell<::sys::Reactor>>, addr: SockAddr)
-           -> SocketAddress
-    {
-        SocketAddress {
-            reactor: reactor,
-            addr: addr,
-        }
+    fn new(inner: SocketAddressInner) -> SocketAddress {
+        SocketAddress { inner: inner }
     }
 
     pub fn connect(&self) -> Promise<SocketStream, ::std::io::Error>
     {
-        let reactor = self.reactor.clone();
-        let addr = self.addr;
-        Promise::ok(()).then(move |()| {
-            let reactor = reactor;
-            let fd = pry!(nix::sys::socket::socket(addr.family(), nix::sys::socket::SockType::Stream,
-                                                   nix::sys::socket::SOCK_NONBLOCK, 0));
-            loop {
-                match ::nix::sys::socket::connect(fd, &addr) {
-                    Ok(()) => break,
-                    Err(e) if e.errno() == ::nix::Errno::EINTR => continue,
-                    Err(e) if e.errno() == ::nix::Errno::EINPROGRESS => break,
-                    Err(e) => return Promise::err(e.into()),
-                }
-            }
-
-            let handle = pry!(reactor.borrow_mut().new_observer(fd));
-
-            // TODO: if we're not already connected, maybe only register writable interest,
-            // and then reregister with read/write interested once we successfully connect.
-
-            let promise = reactor.borrow_mut().observers[handle].when_becomes_writable();
-            promise.map(move |()| {
-
-                let errno = try_syscall!(::nix::sys::socket::getsockopt(
-                    fd,
-                    ::nix::sys::socket::sockopt::SocketError));
-                if errno != 0 {
-                    Err(::std::io::Error::from_raw_os_error(errno))
-                } else {
-                    Ok(SocketStream::new(reactor, handle, fd))
-                }
-            })
-        })
+        self.inner.connect().map(|s| Ok(SocketStream::new(s)))
     }
 
     pub fn listen(&mut self) -> Result<SocketListener, ::std::io::Error>
     {
-        let fd = try!(nix::sys::socket::socket(self.addr.family(), nix::sys::socket::SockType::Stream,
-                                               nix::sys::socket::SOCK_NONBLOCK | nix::sys::socket::SOCK_CLOEXEC,
-                                               0));
-
-        try_syscall!(::nix::sys::socket::setsockopt(fd, nix::sys::socket::sockopt::ReuseAddr, &true));
-        try_syscall!(nix::sys::socket::bind(fd, &self.addr));
-        try_syscall!(nix::sys::socket::listen(fd, 1024));
-
-
-        let handle = try!(self.reactor.borrow_mut().new_observer(fd));
-        Ok(SocketListener::new(self.reactor.clone(), handle, fd))
-    }
-}
-
-
-impl Drop for SocketListenerInner {
-    fn drop(&mut self) {
-        let _ = ::nix::unistd::close(self.descriptor);
-        self.reactor.borrow_mut().observers.remove(self.handle);
+        Ok(SocketListener::new(try!(self.inner.listen())))
     }
 }
 
@@ -306,50 +218,8 @@ impl Clone for SocketListener {
 }
 
 impl SocketListener {
-    fn new(reactor: Rc<RefCell<::sys::Reactor>>, handle: Handle, descriptor: RawDescriptor)
-           -> SocketListener
-    {
-        SocketListener {
-            inner: Rc::new(RefCell::new(SocketListenerInner {
-                reactor: reactor,
-                handle: handle,
-                descriptor: descriptor,
-                queue: None,
-            })),
-        }
-    }
-
-    fn accept_internal(inner: Rc<RefCell<SocketListenerInner>>) -> Promise<RawDescriptor, ::std::io::Error> {
-        let fd = inner.borrow_mut().descriptor;
-        loop {
-            match ::nix::sys::socket::accept4(fd,
-                                              nix::sys::socket::SOCK_NONBLOCK |
-                                              nix::sys::socket::SOCK_CLOEXEC) {
-                Ok(fd) => {
-                    return Promise::ok(fd);
-                }
-                Err(e) => {
-                    match e.errno() {
-                        ::nix::Errno::EINTR => continue,
-                        ::nix::Errno::EAGAIN => {
-                            let handle = inner.borrow().handle;
-                            let promise = {
-                                let reactor = &inner.borrow().reactor;
-                                let promise = // LOL borrow checker fail.
-                                    reactor.borrow_mut().observers[handle].when_becomes_readable();
-                                promise
-                            };
-                            return promise.then(|()| {
-                                SocketListener::accept_internal(inner)
-                            });
-                        }
-                        _ => {
-                            return Promise::err(e.into());
-                        }
-                    }
-                }
-            }
-        }
+    fn new(inner: SocketListenerInner) -> SocketListener {
+        SocketListener { inner: Rc::new(RefCell::new(inner)) }
     }
 
     pub fn accept(&mut self) -> Promise<SocketStream, ::std::io::Error> {
@@ -357,39 +227,24 @@ impl SocketListener {
         let inner2 = inner.clone();
         let maybe_queue = inner.borrow_mut().queue.take();
         let promise = match maybe_queue {
-            None => SocketListener::accept_internal(inner2),
+            None => SocketListenerInner::accept_internal(inner2),
             Some(queue) => {
-                queue.then_else(move |_| SocketListener::accept_internal(inner2) )
+                queue.then_else(move |_| SocketListenerInner::accept_internal(inner2) )
             }
         };
 
         let (p, f) = Promise::and_fulfiller();
         inner.borrow_mut().queue = Some(p);
 
-        promise.map(move |fd| {
+        promise.map(move |inner| {
             f.resolve(Ok(()));
-            let reactor = inner.borrow().reactor.clone();
-            let handle = try!(reactor.borrow_mut().new_observer(fd));
-            Ok(SocketStream::new(reactor, handle, fd))
+            Ok(SocketStream::new(inner))
         })
     }
 }
 
-struct SocketStreamInner {
-    reactor: Rc<RefCell<::sys::Reactor>>,
-    handle: Handle,
-    descriptor: RawDescriptor,
-
-    read_queue: Option<Promise<(),()>>,
-    write_queue: Option<Promise<(),()>>,
-}
-
-impl Drop for SocketStreamInner {
-    fn drop(&mut self) {
-        let _ = ::nix::unistd::close(self.descriptor);
-        self.reactor.borrow_mut().observers.remove(self.handle);
-    }
-}
+#[cfg(unix)]
+type SocketStreamInner = sys::unix::SocketStreamInner;
 
 pub struct SocketStream {
     inner: Rc<RefCell<SocketStreamInner>>,
@@ -402,97 +257,8 @@ impl Clone for SocketStream {
 }
 
 impl SocketStream {
-    fn new(reactor: Rc<RefCell<::sys::Reactor>>, handle: Handle, descriptor: RawDescriptor) -> SocketStream {
-        SocketStream {
-            inner: Rc::new(RefCell::new(SocketStreamInner {
-                reactor: reactor,
-                handle: handle,
-                descriptor: descriptor,
-                read_queue: None,
-                write_queue: None,
-            })),
-        }
-    }
-
-    fn try_read_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
-                            mut buf: T,
-                            mut already_read: usize,
-                            min_bytes: usize)
-                            -> Promise<(T, usize), ::std::io::Error>
-        where T: AsMut<[u8]>
-    {
-        while already_read < min_bytes {
-            let descriptor = inner.borrow().descriptor;
-            match ::nix::unistd::read(descriptor, &mut buf.as_mut()[already_read..]) {
-                Ok(0) => {
-                    // EOF
-                    return Promise::ok((buf, already_read));
-                }
-                Ok(n) => {
-                    already_read += n;
-                }
-                Err(e) => {
-                    match e.errno() {
-                        ::nix::Errno::EINTR => continue,
-                        ::nix::Errno::EAGAIN => {
-                            let handle = inner.borrow().handle;
-                            let promise = {
-                                let reactor = &inner.borrow().reactor;
-                                let promise = // LOL borrow checker fail.
-                                    reactor.borrow_mut().observers[handle].when_becomes_readable();
-                                promise
-                            };
-
-                            return promise.then_else(move |r| match r {
-                                Ok(()) => SocketStream::try_read_internal(inner, buf, already_read, min_bytes),
-                                Err(e) => Promise::err(e)
-                            });
-                        }
-                        _ => {
-                            return Promise::err(e.into())
-                        }
-                    }
-                }
-            }
-        }
-        Promise::ok((buf, already_read))
-    }
-
-    fn write_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
-                         buf: T,
-                         mut already_written: usize) -> Promise<T, ::std::io::Error>
-        where T: AsRef<[u8]>
-    {
-        while already_written < buf.as_ref().len() {
-            let descriptor = inner.borrow().descriptor;
-            match ::nix::unistd::write(descriptor, &buf.as_ref()[already_written..]) {
-                Ok(n) => {
-                    already_written += n;
-                }
-                Err(e) => {
-                    match e.errno() {
-                        ::nix::Errno::EINTR => continue,
-                        ::nix::Errno::EAGAIN => {
-                            let handle = inner.borrow().handle;
-                            let promise = {
-                                let reactor = &inner.borrow().reactor;
-                                let promise = // LOL borrow checker fail.
-                                    reactor.borrow_mut().observers[handle].when_becomes_writable();
-                                promise
-                            };
-                            return promise.then_else(move |r| match r {
-                                Ok(()) => SocketStream::write_internal(inner, buf, already_written),
-                                Err(e) => Promise::err(e),
-                            })
-                        }
-                        _ => {
-                            return Promise::err(e.into());
-                        }
-                    }
-                }
-            }
-        }
-        Promise::ok(buf)
+    fn new(inner: SocketStreamInner) -> SocketStream {
+        SocketStream { inner: Rc::new(RefCell::new(inner)) }
     }
 }
 
@@ -505,9 +271,9 @@ impl AsyncRead for SocketStream {
         let inner2 = inner.clone();
         let maybe_queue = inner.borrow_mut().read_queue.take();
         let promise = match maybe_queue {
-            None => SocketStream::try_read_internal(inner2, buf, 0, min_bytes),
+            None => SocketStreamInner::try_read_internal(inner2, buf, 0, min_bytes),
             Some(queue) => {
-                queue.then_else(move |_| SocketStream::try_read_internal(inner2, buf, 0, min_bytes) )
+                queue.then_else(move |_| SocketStreamInner::try_read_internal(inner2, buf, 0, min_bytes) )
             }
         };
 
@@ -529,9 +295,9 @@ impl AsyncWrite for SocketStream {
         let inner2 = inner.clone();
         let maybe_queue = inner.borrow_mut().write_queue.take();
         let promise = match maybe_queue {
-            None => SocketStream::write_internal(inner2, buf, 0),
+            None => SocketStreamInner::write_internal(inner2, buf, 0),
             Some(queue) => {
-                queue.then_else(move |_| SocketStream::write_internal(inner2, buf, 0) )
+                queue.then_else(move |_| SocketStreamInner::write_internal(inner2, buf, 0) )
             }
         };
 
