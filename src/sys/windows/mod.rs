@@ -245,11 +245,16 @@ impl SocketStreamInner {
                                 mut buf: T,
                                 already_read: usize,
                                 min_bytes: usize)
-                                ->Promise<(T, usize), ::std::io::Error>
+                                -> Promise<(T, usize), ::std::io::Error>
         where T: AsMut<[u8]>
     {
         use ::miow::net::TcpStreamExt;
 
+        if already_read >= min_bytes {
+            return Promise::ok((buf, already_read));
+        }
+
+        let inner2 = inner.clone();
         let &mut SocketStreamInner {
             ref reactor, ref mut stream,
             ref mut read_overlapped, handle,
@@ -257,13 +262,19 @@ impl SocketStreamInner {
         } =  &mut *inner.borrow_mut();
 
         let _done = unsafe {
-            pry!(stream.read_overlapped(buf.as_mut(), read_overlapped))
+            pry!(stream.read_overlapped(&mut buf.as_mut()[already_read..], read_overlapped))
         };
 
 
-        let result = reactor.borrow_mut().observers[handle].when_read_done().map(move |n| {
+        let result = reactor.borrow_mut().observers[handle].when_read_done().then(move |n| {
             println!("read transferred this many bytes: {}", n);
-            Ok((buf, n as usize))
+            let total_read = n as usize + already_read;
+            if n == 0 {
+                println!("EOF");
+                Promise::ok((buf, total_read))
+            } else {
+                SocketStreamInner::try_read_internal(inner2, buf, total_read, min_bytes)
+            }
         });
 
         result
@@ -271,11 +282,16 @@ impl SocketStreamInner {
 
     pub fn write_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
                              buf: T,
-                             mut already_written: usize) -> Promise<T, ::std::io::Error>
+                             already_written: usize) -> Promise<T, ::std::io::Error>
         where T: AsRef<[u8]>
     {
         use ::miow::net::TcpStreamExt;
 
+        if already_written == buf.as_ref().len() {
+            return Promise::ok(buf)
+        }
+
+        let inner2 = inner.clone();
         let &mut SocketStreamInner {
             ref reactor,
             ref stream,
@@ -284,12 +300,17 @@ impl SocketStreamInner {
         } =  &mut *inner.borrow_mut();
 
         let _done = unsafe {
-            pry!(stream.write_overlapped(buf.as_ref(), write_overlapped))
+            pry!(stream.write_overlapped(&buf.as_ref()[already_written ..], write_overlapped))
         };
 
-        let result = reactor.borrow_mut().observers[handle].when_write_done().map(move |n| {
+        let result = reactor.borrow_mut().observers[handle].when_write_done().then(move |n| {
             println!("write transferred this many bytes: {}", n);
-            Ok(buf)
+            let total_written = n as usize + already_written;
+            if n == 0 {
+                println!("wrote zero bytes!?");
+            }
+
+            SocketStreamInner::write_internal(inner2, buf, total_written)
         });
 
         result
