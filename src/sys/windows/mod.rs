@@ -22,22 +22,75 @@
 use gj::{Promise, PromiseFulfiller};
 use std::cell::{RefCell};
 use std::rc::Rc;
+use handle_table::{HandleTable, Handle};
+
+struct Observer {
+    read_overlapped: *mut ::miow::Overlapped,
+    write_overlapped: *mut ::miow::Overlapped,
+    read_fulfiller: Option<PromiseFulfiller<u32, ::std::io::Error>>,
+    write_fulfiller: Option<PromiseFulfiller<u32, ::std::io::Error>>,
+}
+
+impl Observer {
+    pub fn when_read_done(&mut self) -> Promise<u32, ::std::io::Error> {
+        let (promise, fulfiller) = Promise::and_fulfiller();
+        self.read_fulfiller = Some(fulfiller);
+        promise
+    }
+
+    pub fn when_write_done(&mut self) -> Promise<u32, ::std::io::Error> {
+        let (promise, fulfiller) = Promise::and_fulfiller();
+        self.write_fulfiller = Some(fulfiller);
+        promise
+    }
+}
 
 pub struct Reactor {
     cp: ::miow::iocp::CompletionPort,
+    observers: HandleTable<Observer>,
+    statuses: Vec<::miow::iocp::CompletionStatus>,
 }
 
 impl Reactor {
     pub fn new() -> Result<Reactor, ::std::io::Error> {
         Ok(Reactor {
             cp: try!(::miow::iocp::CompletionPort::new(1)),
+            observers: HandleTable::new(),
+            statuses: vec![::miow::iocp::CompletionStatus::zero(); 1024]
         })
     }
 
     pub fn run_once(&mut self, maybe_timeout: Option<::time::Duration>)
                     -> Result<(), ::std::io::Error>
     {
+        let timeout = maybe_timeout.map(|t| t.num_milliseconds() as u32); // XXX check for overflow
+
+        //let mut statu
+
+        {
+            let statuses = try!(self.cp.get_many(&mut self.statuses[..], timeout));
+            for status in statuses {
+                println!("got token: {}", status.token());
+            }
+        }
         unimplemented!()
+    }
+
+    fn add_socket<T>(&mut self, sock: &T,
+                     read_overlapped: *mut ::miow::Overlapped,
+                     write_overlapped: *mut ::miow::Overlapped)
+                     -> Result<Handle, ::std::io::Error>
+        where T : ::std::os::windows::io::AsRawSocket
+    {
+        let observer = Observer {
+            read_overlapped: read_overlapped,
+            write_overlapped: write_overlapped,
+            read_fulfiller: None,
+            write_fulfiller: None,
+        };
+        let handle = self.observers.push(observer);
+        try!(self.cp.add_socket(handle.val, sock));
+        Ok(handle)
     }
 }
 
@@ -64,10 +117,15 @@ impl SocketAddressInner {
             ::std::net::SocketAddr::V6(_) => pry!(::net2::TcpBuilder::new_v6()),
         };
         let mut overlapped = ::miow::Overlapped::zero();
-        let stream = unsafe {
+        let (stream, ready) = unsafe {
             pry!(builder.connect_overlapped(&self.addr, &mut overlapped))
         };
-        unimplemented!()
+
+        if ready {
+            Promise::ok(SocketStreamInner::new(self.reactor.clone(), stream))
+        } else {
+            unimplemented!()
+        }
     }
 
     pub fn listen(&mut self) -> Result<SocketListenerInner, ::std::io::Error> {
@@ -80,6 +138,7 @@ pub struct SocketListenerInner {
     reactor: Rc<RefCell<Reactor>>,
     listener: ::std::net::TcpListener,
     addr: ::std::net::SocketAddr,
+    read_overlapped: ::miow::Overlapped,
     pub queue: Option<Promise<(),()>>,
 }
 
@@ -92,6 +151,7 @@ impl SocketListenerInner {
             reactor: reactor,
             listener: listener,
             addr: addr,
+            read_overlapped: ::miow::Overlapped::zero(),
             queue: None,
         }
     }
@@ -106,17 +166,31 @@ impl SocketListenerInner {
         };
 
         let mut accept_addrs = ::miow::net::AcceptAddrsBuf::new();
-        let mut overlapped = ::miow::Overlapped::zero();
+
+        let &mut SocketListenerInner {
+            reactor: ref reactor,
+            listener: ref mut listener,
+            read_overlapped: ref mut read_overlapped,
+            ..
+        } =  &mut *inner.borrow_mut();
+
         let (stream, ready) = unsafe {
-            pry!(inner.borrow_mut().listener.accept_overlapped(&builder,
-                                                               &mut accept_addrs, &mut overlapped))
+            pry!(listener.accept_overlapped(&builder,
+                                            &mut accept_addrs,
+                                            read_overlapped))
         };
 
         if ready {
-            let reactor = inner.borrow().reactor.clone();
-            Promise::ok(SocketStreamInner::new(reactor, stream))
+            Promise::ok(SocketStreamInner::new(reactor.clone(), stream))
         } else {
-            unimplemented!();
+            let handle = pry!(reactor.borrow_mut().add_socket(&stream,
+                                                              read_overlapped,
+                                                              ::std::ptr::null_mut()));
+
+            let reactor2 = reactor.clone();
+            reactor.borrow_mut().observers[handle].when_read_done().map(move |_| {
+                Ok(SocketStreamInner::new(reactor2, stream))
+            })
         }
     }
 }
