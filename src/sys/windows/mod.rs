@@ -129,8 +129,16 @@ impl SocketAddressInner {
     pub fn connect(&self) -> Promise<SocketStreamInner, ::std::io::Error> {
         use miow::net::TcpBuilderExt;
         let builder = match self.addr {
-            ::std::net::SocketAddr::V4(_) => pry!(::net2::TcpBuilder::new_v4()),
-            ::std::net::SocketAddr::V6(_) => pry!(::net2::TcpBuilder::new_v6()),
+            ::std::net::SocketAddr::V4(_) => {
+                let builder = pry!(::net2::TcpBuilder::new_v4());
+                pry!(builder.bind("0.0.0.0:0"));
+                builder
+            }
+            ::std::net::SocketAddr::V6(_) => {
+                let builder = pry!(::net2::TcpBuilder::new_v6());
+                pry!(builder.bind("[::]:0")); // TODO: does this work?
+                builder
+            }
         };
 
         let mut read_overlapped = Box::new(::miow::Overlapped::zero());
