@@ -58,41 +58,98 @@ impl SocketAddressInner {
     }
 
     pub fn connect(&self) -> Promise<SocketStreamInner, ::std::io::Error> {
+        use miow::net::TcpBuilderExt;
+        let builder = match self.addr {
+            ::std::net::SocketAddr::V4(_) => pry!(::net2::TcpBuilder::new_v4()),
+            ::std::net::SocketAddr::V6(_) => pry!(::net2::TcpBuilder::new_v6()),
+        };
+        let mut overlapped = ::miow::Overlapped::zero();
+        let stream = unsafe {
+            pry!(builder.connect_overlapped(&self.addr, &mut overlapped))
+        };
         unimplemented!()
     }
 
     pub fn listen(&mut self) -> Result<SocketListenerInner, ::std::io::Error> {
-        unimplemented!()
+        let listener = try!(::std::net::TcpListener::bind(self.addr));
+        Ok(SocketListenerInner::new(self.reactor.clone(), listener, self.addr))
     }
 }
 
 pub struct SocketListenerInner {
     reactor: Rc<RefCell<Reactor>>,
+    listener: ::std::net::TcpListener,
+    addr: ::std::net::SocketAddr,
     pub queue: Option<Promise<(),()>>,
 }
 
 impl SocketListenerInner {
+    fn new(reactor: Rc<RefCell<Reactor>>, listener: ::std::net::TcpListener,
+           addr: ::std::net::SocketAddr)
+           -> SocketListenerInner
+    {
+        SocketListenerInner {
+            reactor: reactor,
+            listener: listener,
+            addr: addr,
+            queue: None,
+        }
+    }
+
     pub fn accept_internal(inner: Rc<RefCell<SocketListenerInner>>)
                            -> Promise<SocketStreamInner, ::std::io::Error>
     {
-        unimplemented!()
+        use miow::net::TcpListenerExt;
+        let builder = match inner.borrow().addr {
+            ::std::net::SocketAddr::V4(_) => pry!(::net2::TcpBuilder::new_v4()),
+            ::std::net::SocketAddr::V6(_) => pry!(::net2::TcpBuilder::new_v6()),
+        };
+
+        let mut accept_addrs = ::miow::net::AcceptAddrsBuf::new();
+        let mut overlapped = ::miow::Overlapped::zero();
+        let (stream, ready) = unsafe {
+            pry!(inner.borrow_mut().listener.accept_overlapped(&builder,
+                                                               &mut accept_addrs, &mut overlapped))
+        };
+
+        if ready {
+            let reactor = inner.borrow().reactor.clone();
+            Promise::ok(SocketStreamInner::new(reactor, stream))
+        } else {
+            unimplemented!();
+        }
     }
 }
 
 pub struct SocketStreamInner {
     reactor: Rc<RefCell<Reactor>>,
+    stream: ::std::net::TcpStream,
     pub read_queue: Option<Promise<(),()>>,
     pub write_queue: Option<Promise<(),()>>,
 }
 
 impl SocketStreamInner {
+    fn new(reactor: Rc<RefCell<Reactor>>, stream: ::std::net::TcpStream) -> SocketStreamInner {
+        SocketStreamInner {
+            reactor: reactor,
+            stream: stream,
+            read_queue: None,
+            write_queue: None,
+        }
+    }
+
     pub fn try_read_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
                                 mut buf: T,
-                                mut already_read: usize,
+                                already_read: usize,
                                 min_bytes: usize)
                                 ->Promise<(T, usize), ::std::io::Error>
         where T: AsMut<[u8]>
     {
+        use ::miow::net::TcpStreamExt;
+        let mut overlapped = ::miow::Overlapped::zero();
+        let pending = unsafe {
+            pry!(inner.borrow().stream.read_overlapped(buf.as_mut(), &mut overlapped))
+        };
         unimplemented!()
     }
 
@@ -101,6 +158,12 @@ impl SocketStreamInner {
                              mut already_written: usize) -> Promise<T, ::std::io::Error>
         where T: AsRef<[u8]>
     {
+        use ::miow::net::TcpStreamExt;
+        let mut overlapped = ::miow::Overlapped::zero();
+        let pending = unsafe {
+            pry!(inner.borrow().stream.write_overlapped(buf.as_ref(), &mut overlapped))
+        };
+
         unimplemented!()
     }
 }

@@ -64,6 +64,7 @@ extern crate time;
 
 extern crate nix;
 extern crate miow;
+extern crate net2;
 
 use std::cell::{RefCell};
 use std::rc::Rc;
