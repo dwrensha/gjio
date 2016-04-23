@@ -146,7 +146,7 @@ impl SocketAddressInner {
 
     pub fn listen(&mut self) -> Result<SocketListenerInner, ::std::io::Error> {
         let listener = try!(::std::net::TcpListener::bind(self.addr));
-        Ok(SocketListenerInner::new(self.reactor.clone(), listener, self.addr))
+        SocketListenerInner::new(self.reactor.clone(), listener, self.addr)
     }
 }
 
@@ -154,22 +154,29 @@ pub struct SocketListenerInner {
     reactor: Rc<RefCell<Reactor>>,
     listener: ::std::net::TcpListener,
     addr: ::std::net::SocketAddr,
-    read_overlapped: ::miow::Overlapped,
+    read_overlapped: Box<::miow::Overlapped>,
+    handle: Handle,
     pub queue: Option<Promise<(),()>>,
 }
 
 impl SocketListenerInner {
     fn new(reactor: Rc<RefCell<Reactor>>, listener: ::std::net::TcpListener,
            addr: ::std::net::SocketAddr)
-           -> SocketListenerInner
+           -> Result<SocketListenerInner, ::std::io::Error>
     {
-        SocketListenerInner {
+        let mut read_overlapped = Box::new(::miow::Overlapped::zero());
+        let handle = try!(
+            reactor.borrow_mut().add_socket(&listener, &mut *read_overlapped,
+                                            ::std::ptr::null_mut()));
+
+        Ok(SocketListenerInner {
             reactor: reactor,
             listener: listener,
             addr: addr,
-            read_overlapped: ::miow::Overlapped::zero(),
+            read_overlapped: read_overlapped,
+            handle: handle,
             queue: None,
-        }
+        })
     }
 
     pub fn accept_internal(inner: Rc<RefCell<SocketListenerInner>>)
@@ -187,6 +194,7 @@ impl SocketListenerInner {
             reactor: ref reactor,
             listener: ref mut listener,
             read_overlapped: ref mut read_overlapped,
+            handle: handle,
             ..
         } =  &mut *inner.borrow_mut();
 
@@ -195,11 +203,6 @@ impl SocketListenerInner {
                                             &mut accept_addrs,
                                             read_overlapped))
         };
-
-
-        let handle = pry!(reactor.borrow_mut().add_socket(listener,
-                                                          read_overlapped,
-                                                          ::std::ptr::null_mut()));
 
         let reactor2 = reactor.clone();
         let result = reactor.borrow_mut().observers[handle].when_read_done().map(move |_| {
