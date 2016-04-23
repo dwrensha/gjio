@@ -26,3 +26,78 @@ use std::rc::Rc;
 pub struct Reactor {
     cp: ::miow::iocp::CompletionPort,
 }
+
+impl Reactor {
+    pub fn new() -> Result<Reactor, ::std::io::Error> {
+        Reactor {
+            cp: try!(::miow::iocp::CompletionPort::new(1)),
+        }
+    }
+
+    pub fn run_once(&mut self, maybe_timeout: Option<::time::Duration>)
+                    -> Result<(), ::std::io::Error>
+    {
+        unimplemented!()
+    }
+}
+
+#[derive(Clone)]
+pub struct SocketAddressInner {
+    reactor: Rc<RefCell<Reactor>>,
+    addr: ::std::net::SocketAddr,
+}
+
+impl SocketAddressInner {
+    pub fn new_tcp(reactor: Rc<RefCell<Reactor>>, addr: ::std::net::SockAddr)
+                   -> SocketAddressInner
+    {
+        SocketAddresInner {
+            reactor: reactor,
+            addr: addr,
+        }
+    }
+
+    pub fn connect(&self) -> Promise<SocketStreamInner, ::std::io::Error> {
+        unimplemented!()
+    }
+
+    pub fn listen(&mut self) -> Result<SocketListenerInner, ::std::io::Error> {
+        unimplemented!()
+    }
+}
+
+pub struct SocketListenerInner {
+    reactor: Rc<RefCell<Reactor>>,
+}
+
+impl SocketListenerInner {
+    pub fn accept_internal(inner: Rc<RefCell<SocketListenerInner>>)
+                           -> Promise<SocketStreamInner, ::std::io::Error>
+    {
+        unimplemented!()
+    }
+}
+
+pub struct SocketStreamInner {
+    reactor: Rc<RefCell<Reactor>>,
+}
+
+impl SocketStreamInner {
+    pub fn try_read_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
+                                mut buf: T,
+                                mut already_read: usize,
+                                min_bytes: usize)
+                                ->Promise<(T, usize), ::std::io::Error>
+        where T: AsMut<[u8]>
+    {
+        unimplemented!()
+    }
+
+    pub fn write_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
+                             buf: T,
+                             mut already_written: usize) -> Promise<T, ::std::io::Error>
+        where T: AsRef<[u8]>
+    {
+        unimplemented!()
+    }
+}
