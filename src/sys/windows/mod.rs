@@ -70,10 +70,26 @@ impl Reactor {
         {
             let statuses = try!(self.cp.get_many(&mut self.statuses[..], timeout));
             for status in statuses {
-                println!("got token: {}", status.token());
+                let token = status.token();
+                let overlapped = status.overlapped();
+                let bytes_transferred = status.bytes_transferred();
+                let handle = Handle { val: token };
+                if self.observers[handle].read_overlapped == overlapped {
+                    match self.observers[handle].read_fulfiller.take() {
+                        None => (),
+                        Some(f) => f.fulfill(bytes_transferred),
+                    }
+                }
+                if self.observers[handle].write_overlapped == overlapped {
+                    match self.observers[handle].write_fulfiller.take() {
+                        None => (),
+                        Some(f) => f.fulfill(bytes_transferred),
+                    }
+                }
+
             }
         }
-        unimplemented!()
+        Ok(())
     }
 
     fn add_socket<T>(&mut self, sock: &T,
@@ -189,6 +205,7 @@ impl SocketListenerInner {
 
             let reactor2 = reactor.clone();
             reactor.borrow_mut().observers[handle].when_read_done().map(move |_| {
+                println!("accepted!");
                 Ok(SocketStreamInner::new(reactor2, stream))
             })
         }
