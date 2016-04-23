@@ -126,6 +126,9 @@ type RawDescriptor = ::std::os::unix::io::RawFd;
 #[cfg(unix)]
 type SocketAddressInner = sys::unix::SocketAddressInner;
 
+#[cfg(target_os = "windows")]
+type SocketAddressInner = sys::windows::SocketAddressInner;
+
 pub struct EventPort {
     reactor: Rc<RefCell<::sys::Reactor>>,
     timer_inner: Rc<RefCell<TimerInner>>,
@@ -187,6 +190,9 @@ impl Network {
 #[cfg(unix)]
 type SocketListenerInner = sys::unix::SocketListenerInner;
 
+#[cfg(target_os = "windows")]
+type SocketListenerInner = sys::windows::SocketListenerInner;
+
 pub struct SocketAddress {
     inner: SocketAddressInner,
 }
@@ -245,6 +251,9 @@ impl SocketListener {
 
 #[cfg(unix)]
 type SocketStreamInner = sys::unix::SocketStreamInner;
+
+#[cfg(target_os = "windows")]
+type SocketStreamInner = sys::windows::SocketStreamInner;
 
 pub struct SocketStream {
     inner: Rc<RefCell<SocketStreamInner>>,
