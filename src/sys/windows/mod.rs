@@ -29,9 +29,9 @@ pub struct Reactor {
 
 impl Reactor {
     pub fn new() -> Result<Reactor, ::std::io::Error> {
-        Reactor {
+        Ok(Reactor {
             cp: try!(::miow::iocp::CompletionPort::new(1)),
-        }
+        })
     }
 
     pub fn run_once(&mut self, maybe_timeout: Option<::time::Duration>)
@@ -48,10 +48,10 @@ pub struct SocketAddressInner {
 }
 
 impl SocketAddressInner {
-    pub fn new_tcp(reactor: Rc<RefCell<Reactor>>, addr: ::std::net::SockAddr)
+    pub fn new_tcp(reactor: Rc<RefCell<Reactor>>, addr: ::std::net::SocketAddr)
                    -> SocketAddressInner
     {
-        SocketAddresInner {
+        SocketAddressInner {
             reactor: reactor,
             addr: addr,
         }
@@ -68,6 +68,7 @@ impl SocketAddressInner {
 
 pub struct SocketListenerInner {
     reactor: Rc<RefCell<Reactor>>,
+    pub queue: Option<Promise<(),()>>,
 }
 
 impl SocketListenerInner {
@@ -80,6 +81,8 @@ impl SocketListenerInner {
 
 pub struct SocketStreamInner {
     reactor: Rc<RefCell<Reactor>>,
+    pub read_queue: Option<Promise<(),()>>,
+    pub write_queue: Option<Promise<(),()>>,
 }
 
 impl SocketStreamInner {
