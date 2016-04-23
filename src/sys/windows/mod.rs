@@ -66,7 +66,7 @@ impl Reactor {
         let timeout = maybe_timeout.map(|t| t.num_milliseconds() as u32); // XXX check for overflow
 
         match self.cp.get_many(&mut self.statuses[..], timeout) {
-            Err(ref e) if e.kind() == ::std::io::ErrorKind::TimedOut => Ok(()),
+            Err(ref e) if e.raw_os_error() == Some(258) => Ok(()), // winapi::WAIT_TIMEOUT
             Err(e) => Err(e),
             Ok(statuses) => {
                 for status in statuses {
