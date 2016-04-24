@@ -257,6 +257,10 @@ impl SocketListener {
         SocketListener { inner: Rc::new(RefCell::new(inner)) }
     }
 
+    pub fn local_addr(&self) -> Result<::std::net::SocketAddr, ::std::io::Error> {
+        self.inner.borrow().local_addr()
+    }
+
     pub fn accept(&mut self) -> Promise<SocketStream, ::std::io::Error> {
         let inner = self.inner.clone();
         let inner2 = inner.clone();

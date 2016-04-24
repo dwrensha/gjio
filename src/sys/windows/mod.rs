@@ -204,6 +204,10 @@ impl SocketListenerInner {
         })
     }
 
+    pub fn local_addr(&self) -> Result<::std::net::SocketAddr, ::std::io::Error> {
+        self.listener.local_addr()
+    }
+
     pub fn accept_internal(inner: Rc<RefCell<SocketListenerInner>>)
                            -> Promise<SocketStreamInner, ::std::io::Error>
     {

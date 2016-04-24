@@ -152,7 +152,6 @@ impl SocketAddressInner {
         let handle = try!(self.reactor.borrow_mut().new_observer(fd));
         Ok(SocketListenerInner::new(self.reactor.clone(), handle, fd))
     }
-
 }
 
 pub struct SocketListenerInner {
@@ -178,6 +177,14 @@ impl SocketListenerInner {
             handle: handle,
             descriptor: descriptor,
             queue: None,
+        }
+    }
+
+    pub fn local_addr(&self) -> Result<::std::net::SocketAddr, ::std::io::Error> {
+        match try_syscall!(socket::getsockname(self.descriptor)) {
+            socket::SockAddr::Inet(inet_addr) => Ok(inet_addr.to_std()),
+            _ => Err(::std::io::Error::new(::std::io::ErrorKind::Other,
+                                           "cannot take local_addr of a non-inet socket")),
         }
     }
 
