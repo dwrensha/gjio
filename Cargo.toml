@@ -3,6 +3,7 @@ name = "gjio"
 version = "0.1.0"
 authors = ["David Renshaw <david@sandstorm.io>"]
 license = "MIT"
+description = "Asynchronous input and output."
 repository = "https://github.com/dwrensha/gj"
 
 readme = "README.md"
