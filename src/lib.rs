@@ -286,7 +286,7 @@ impl SocketListener {
         self.inner.borrow().local_addr()
     }
 
-    pub fn accept(&mut self) -> Promise<SocketStream, ::std::io::Error> {
+    pub fn accept(&self) -> Promise<SocketStream, ::std::io::Error> {
         let inner = self.inner.clone();
         let inner2 = inner.clone();
         let maybe_queue = inner.borrow_mut().queue.take();

@@ -1,16 +1,16 @@
 [package]
 name = "gjio"
-version = "0.0.1"
+version = "0.1.0"
 authors = ["David Renshaw <david@sandstorm.io>"]
 license = "MIT"
 repository = "https://github.com/dwrensha/gj"
 
 readme = "README.md"
 
-[dependencies.gj]
-git = "https://github.com/dwrensha/gj.git"
+keywords = ["promise", "async", "io"]
 
 [dependencies]
+gj = "0.2"
 time = "0.1"
 nix = "0.5"
 miow = "0.1"
