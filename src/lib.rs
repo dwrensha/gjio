@@ -30,7 +30,7 @@
 //! use gjio::{AsyncRead, AsyncWrite, Slice};
 //!
 //! fn echo(mut stream: gjio::SocketStream, buf: Vec<u8>) -> Promise<(), ::std::io::Error> {
-//!     stream.try_read(buf, 1).lift().then(move |(buf, n)| {
+//!     stream.try_read(buf, 1).then(move |(buf, n)| {
 //!         if n == 0 { // EOF
 //!             Promise::ok(())
 //!         } else {
@@ -44,15 +44,25 @@
 //! fn main() {
 //!     EventLoop::top_level(|wait_scope| -> Result<(), ::std::io::Error> {
 //!         let mut event_port = try!(gjio::EventPort::new());
-//!         //let (stream1, stream2) = try!(unix::Stream::new_pair());
-//!         //let promise1 = echo(stream1, vec![0; 5]); // Tiny buffer just to be difficult.
-//!         //let promise2 = stream2.write(b"hello world").lift().then(|(stream, _)| {
-//!         //    stream.read(vec![0; 11], 11).map(|(_, buf, _)| {
-//!         //        assert_eq!(buf, b"hello world");
-//!         //        Ok(())
-//!         //    }).lift()
-//!         //});
-//!         //try!(Promise::all(vec![promise1, promise2].into_iter()).wait(wait_scope));
+//!         let network = event_port.get_network();
+//!         let mut listen_address = network.get_tcp_address(
+//!             ::std::str::FromStr::from_str("127.0.0.1:0").unwrap());
+//!         let mut listener = try!(listen_address.listen());
+//!         let connect_address = network.get_tcp_address(try!(listener.local_addr()));
+//!
+//!         let promise1 = listener.accept().then(move |stream| {
+//!             echo(stream, vec![0;5]) // Tiny buffer just to be difficult
+//!         });
+//!
+//!         let promise2 = connect_address.connect().then(move |mut stream| {
+//!             stream.write(b"hello world").then(move |_| {
+//!                 stream.read(vec![0; 11], 11).map(|(buf, _)| {
+//!                     assert_eq!(buf, b"hello world");
+//!                     Ok(())
+//!                 })
+//!            })
+//!         });
+//!         try!(Promise::all(vec![promise1, promise2].into_iter()).wait(wait_scope, &mut event_port));
 //!         Ok(())
 //!     }).expect("top level");
 //! }
