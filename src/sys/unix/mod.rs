@@ -236,7 +236,7 @@ impl Drop for SocketStreamInner {
 }
 
 impl SocketStreamInner {
-    fn new(reactor: Rc<RefCell<::sys::Reactor>>, handle: Handle, descriptor: RawFd) -> SocketStreamInner {
+    fn new(reactor: Rc<RefCell<Reactor>>, handle: Handle, descriptor: RawFd) -> SocketStreamInner {
         SocketStreamInner {
                 reactor: reactor,
                 handle: handle,
@@ -244,6 +244,19 @@ impl SocketStreamInner {
                 read_queue: None,
                 write_queue: None,
         }
+    }
+
+    pub fn new_pair(reactor: Rc<RefCell<Reactor>>)
+                    -> Result<(SocketStreamInner, SocketStreamInner), ::std::io::Error>
+    {
+        let (fd0, fd1) = try_syscall!(socket::socketpair(socket::AddressFamily::Unix,
+                                                         socket::SockType::Stream,
+                                                         0,
+                                                         socket::SOCK_NONBLOCK | socket::SOCK_CLOEXEC));
+        let handle0 = try!(reactor.borrow_mut().new_observer(fd0));
+        let handle1 = try!(reactor.borrow_mut().new_observer(fd1));
+        Ok((SocketStreamInner::new(reactor.clone(), handle0, fd0),
+            SocketStreamInner::new(reactor, handle1, fd1)))
     }
 
     pub fn try_read_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,

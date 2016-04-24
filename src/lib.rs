@@ -186,6 +186,12 @@ impl Network {
     {
         Ok(SocketAddress::new(try!(SocketAddressInner::new_unix(self.reactor.clone(), addr))))
     }
+
+    #[cfg(unix)]
+    pub fn new_socket_pair(&self) -> Result<(SocketStream, SocketStream), ::std::io::Error> {
+        let (inner0, inner1) = try!(SocketStreamInner::new_pair(self.reactor.clone()));
+        Ok((SocketStream::new(inner0), SocketStream::new(inner1)))
+    }
 }
 
 #[cfg(unix)]
