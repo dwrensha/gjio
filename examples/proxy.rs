@@ -34,8 +34,8 @@ fn forward<R,W,B>(mut src: R, mut dst: W, buf: B) -> Promise<(), ::std::io::Erro
         if n == 0 { // EOF
             Promise::ok(())
         } else {
-            dst.write(gjio::Slice::new(buf, n)).then(move |slice| {
-                forward(src, dst, slice.buf)
+            dst.write(gjio::BufferPrefix::new(buf, n)).then(move |prefix| {
+                forward(src, dst, prefix.buf)
             })
         }
     })
@@ -91,5 +91,5 @@ pub fn main() {
         let outbound_address = network.get_tcp_address(outbound_addr);
         accept_loop(listener, outbound_address, event_port.get_timer(),
                     gj::TaskSet::new(Box::new(Reporter))).wait(wait_scope, &mut event_port)
-    }).unwrap();
+    }).expect("top level");
 }

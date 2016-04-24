@@ -23,19 +23,19 @@
 //!
 //! # Example
 //!
-//!```
+//! ```
 //! extern crate gj;
 //! extern crate gjio;
 //! use gj::{EventLoop, Promise};
-//! use gjio::{AsyncRead, AsyncWrite, Slice};
+//! use gjio::{AsyncRead, AsyncWrite, BufferPrefix, SocketStream};
 //!
-//! fn echo(mut stream: gjio::SocketStream, buf: Vec<u8>) -> Promise<(), ::std::io::Error> {
+//! fn echo(mut stream: SocketStream, buf: Vec<u8>) -> Promise<(), ::std::io::Error> {
 //!     stream.try_read(buf, 1).then(move |(buf, n)| {
 //!         if n == 0 { // EOF
 //!             Promise::ok(())
 //!         } else {
-//!             stream.write(Slice::new(buf, n)).then(move |slice| {
-//!                 echo(stream, slice.buf)
+//!             stream.write(BufferPrefix::new(buf, n)).then(move |prefix| {
+//!                 echo(stream, prefix.buf)
 //!             })
 //!         }
 //!     })
@@ -62,11 +62,13 @@
 //!                 })
 //!            })
 //!         });
-//!         try!(Promise::all(vec![promise1, promise2].into_iter()).wait(wait_scope, &mut event_port));
+//!
+//!         let all = Promise::all(vec![promise1, promise2].into_iter());
+//!         try!(all.wait(wait_scope, &mut event_port));
 //!         Ok(())
 //!     }).expect("top level");
 //! }
-//!```
+//! ```
 
 
 #[macro_use] extern crate gj;
@@ -87,7 +89,7 @@ mod sys;
 /// A nonblocking input bytestream.
 pub trait AsyncRead {
     /// Attempts to read `buf.len()` bytes from the stream, writing them into `buf`.
-    /// Returns `self`, the modified `buf`, and the number of bytes actually read.
+    /// Returns `the modified `buf`,and the number of bytes actually read.
     /// Returns as soon as `min_bytes` are read or EOF is encountered.
     fn try_read<T>(&mut self, buf: T, min_bytes: usize) -> Promise<(T, usize), ::std::io::Error>
         where T: AsMut<[u8]>;
@@ -109,23 +111,27 @@ pub trait AsyncRead {
 
 /// A nonblocking output bytestream.
 pub trait AsyncWrite {
-    /// Attempts to write all `buf.len()` bytes from `buf` into the stream. Returns `self` and `buf`
+    /// Attempts to write all `buf.len()` bytes from `buf` into the stream. Returns `buf`
     /// once all of the bytes have been written.
     fn write<T: AsRef<[u8]>>(&mut self, buf: T) -> Promise<T, ::std::io::Error>;
 }
 
-pub struct Slice<T> where T: AsRef<[u8]> {
+/// Wrapper around an owned buffer, exposing some number of initial bytes.
+pub struct BufferPrefix<T> where T: AsRef<[u8]> {
+    /// The underlying buffer.
     pub buf: T,
+
+    /// The number of bytes to expose.
     pub end: usize,
 }
 
-impl <T> Slice<T> where T: AsRef<[u8]> {
-    pub fn new(buf: T, end: usize) -> Slice<T> {
-        Slice { buf: buf, end: end }
+impl <T> BufferPrefix<T> where T: AsRef<[u8]> {
+    pub fn new(buf: T, end: usize) -> BufferPrefix<T> {
+        BufferPrefix { buf: buf, end: end }
     }
 }
 
-impl <T> AsRef<[u8]> for Slice<T> where T: AsRef<[u8]> {
+impl <T> AsRef<[u8]> for BufferPrefix<T> where T: AsRef<[u8]> {
     fn as_ref<'a>(&'a self) -> &'a [u8] {
         &self.buf.as_ref()[0..self.end]
     }
@@ -140,6 +146,7 @@ type SocketAddressInner = sys::unix::SocketAddressInner;
 #[cfg(target_os = "windows")]
 type SocketAddressInner = sys::windows::SocketAddressInner;
 
+/// Source of events from the outside world. Implements `gj::EventPort`.
 pub struct EventPort {
     reactor: Rc<RefCell<::sys::Reactor>>,
     timer_inner: Rc<RefCell<TimerInner>>,
@@ -176,6 +183,10 @@ impl gj::EventPort<::std::io::Error> for EventPort {
     }
 }
 
+/// Mediates the creation of async-enabled sockets.
+///
+/// It is good practice to limit the use of this struct to high-level startup code
+/// and user interaction.
 #[derive(Clone)]
 pub struct Network {
     reactor: Rc<RefCell<::sys::Reactor>>,
@@ -185,7 +196,6 @@ impl Network {
     fn new(reactor: Rc<RefCell<::sys::Reactor>>) -> Network {
         Network { reactor: reactor }
     }
-
 
     pub fn get_tcp_address(&self, addr: ::std::net::SocketAddr) -> SocketAddress {
         SocketAddress::new(SocketAddressInner::new_tcp(self.reactor.clone(), addr))
@@ -232,6 +242,8 @@ type SocketListenerInner = sys::unix::SocketListenerInner;
 #[cfg(target_os = "windows")]
 type SocketListenerInner = sys::windows::SocketListenerInner;
 
+/// An address to which the application may connect or on which the application
+/// may listen.
 pub struct SocketAddress {
     inner: SocketAddressInner,
 }
@@ -252,6 +264,7 @@ impl SocketAddress {
     }
 }
 
+/// A server socket that can accept connections.
 pub struct SocketListener {
     inner: Rc<RefCell<SocketListenerInner>>,
 }
@@ -267,6 +280,8 @@ impl SocketListener {
         SocketListener { inner: Rc::new(RefCell::new(inner)) }
     }
 
+    /// Gets the local address. Useful if you didn't specify a port when constructing
+    /// the `SocketAddress`.
     pub fn local_addr(&self) -> Result<::std::net::SocketAddr, ::std::io::Error> {
         self.inner.borrow().local_addr()
     }
@@ -298,6 +313,7 @@ type SocketStreamInner = sys::unix::SocketStreamInner;
 #[cfg(target_os = "windows")]
 type SocketStreamInner = sys::windows::SocketStreamInner;
 
+/// A connected socket that allows reading and writing.
 pub struct SocketStream {
     inner: Rc<RefCell<SocketStreamInner>>,
 }
@@ -390,7 +406,6 @@ impl ::std::cmp::PartialOrd for AtTimeFulfiller {
     }
 }
 
-
 struct TimerInner {
     heap: BinaryHeap<AtTimeFulfiller>,
     frozen_steady_time: ::time::SteadyTime,
@@ -439,6 +454,7 @@ impl TimerInner {
     }
 }
 
+/// Allows scheduling of timeouts.
 pub struct Timer {
     inner: Rc<RefCell<TimerInner>>,
 }
@@ -448,6 +464,7 @@ impl Timer {
         Timer { inner: inner }
     }
 
+    /// Returns a promise that will be fulfilled after the given delay.
     pub fn after_delay(&self, delay: ::std::time::Duration) -> Promise<(), ::std::io::Error> {
         let delay = match ::time::Duration::from_std(delay) {
             Ok(d) => d,
@@ -462,7 +479,9 @@ impl Timer {
         p
     }
 
-   pub fn timeout_after<T>(&self, delay: ::std::time::Duration,
+    /// Wraps the given promise in a timeout. If the original promise is not completed within that
+    /// time, it is cancelled.
+    pub fn timeout_after<T>(&self, delay: ::std::time::Duration,
                             promise: Promise<T, ::std::io::Error>) -> Promise<T, ::std::io::Error>
     {
         promise.exclusive_join(self.after_delay(delay).map(|()| {

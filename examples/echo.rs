@@ -28,7 +28,7 @@ extern crate gj;
 extern crate gjio;
 
 use gj::{EventLoop, Promise, PromiseFulfiller, TaskReaper, TaskSet};
-use gjio::{AsyncRead, AsyncWrite, Slice};
+use gjio::{AsyncRead, AsyncWrite, BufferPrefix};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -102,8 +102,8 @@ fn echo(mut stream: gjio::SocketStream, buf: Buffer) -> Promise<(), ::std::io::E
         if n == 0 { // EOF
             Promise::ok(())
         } else {
-            stream.write(Slice::new(buf, n)).then(move |slice| {
-                echo(stream, slice.buf)
+            stream.write(BufferPrefix::new(buf, n)).then(move |prefix| {
+                echo(stream, prefix.buf)
             })
         }
     })
