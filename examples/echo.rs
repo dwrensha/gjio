@@ -38,34 +38,6 @@ struct BufferPool {
     waiting: Option<PromiseFulfiller<Buffer, ::std::io::Error>>,
 }
 
-struct Buffer {
-    buf: Vec<u8>,
-    pool: Rc<RefCell<BufferPool>>,
-}
-
-impl AsRef<[u8]> for Buffer {
-    fn as_ref<'a>(&'a self) -> &'a [u8] {
-        &self.buf[..]
-    }
-}
-
-impl AsMut<[u8]> for Buffer {
-    fn as_mut<'a>(&'a mut self) -> &'a mut [u8] {
-        &mut self.buf[..]
-    }
-}
-
-impl Drop for Buffer {
-    fn drop(&mut self) {
-        let vec = ::std::mem::replace(&mut self.buf, Vec::with_capacity(0));
-        let waiting = self.pool.borrow_mut().waiting.take();
-        match waiting {
-            Some(fulfiller) => fulfiller.fulfill(Buffer { buf: vec, pool: self.pool.clone() }),
-            None => self.pool.borrow_mut().buffers.push(vec),
-        }
-    }
-}
-
 impl BufferPool {
     pub fn new(buf_size: usize, num_buffers: usize) -> BufferPool {
         BufferPool { buffers: vec![vec![0; buf_size]; num_buffers], waiting: None }
@@ -89,6 +61,35 @@ impl BufferPool {
             }
         }
     }
+
+    pub fn push(pool: &Rc<RefCell<BufferPool>>, buf: Vec<u8>) {
+        let waiting = pool.borrow_mut().waiting.take();
+        match waiting {
+            Some(fulfiller) => fulfiller.fulfill(Buffer { buf: buf, pool: pool.clone() }),
+            None => pool.borrow_mut().buffers.push(buf),
+        }
+    }
+}
+
+// A buffer borrowed from a BufferPool. When a Buffer dropped, its storage is returned to the pool.
+struct Buffer {
+    buf: Vec<u8>,
+    pool: Rc<RefCell<BufferPool>>,
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        let buf = ::std::mem::replace(&mut self.buf, Vec::with_capacity(0));
+        BufferPool::push(&self.pool, buf);
+    }
+}
+
+impl AsRef<[u8]> for Buffer {
+    fn as_ref<'a>(&'a self) -> &'a [u8] { &self.buf[..] }
+}
+
+impl AsMut<[u8]> for Buffer {
+    fn as_mut<'a>(&'a mut self) -> &'a mut [u8] { &mut self.buf[..] }
 }
 
 /// Reads `buf`-sized chunks of bytes from a stream until end-of-file, immediately writing each
