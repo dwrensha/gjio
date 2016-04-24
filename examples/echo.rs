@@ -35,18 +35,12 @@ use std::rc::Rc;
 /// Container for buffers that are not currently being used on a connection.
 struct BufferPool {
     buffers: Vec<Vec<u8>>,
-    waiting: Option<PromiseFulfiller<Buffer, ()>>,
+    waiting: Option<PromiseFulfiller<Buffer, ::std::io::Error>>,
 }
 
 struct Buffer {
     buf: Vec<u8>,
     pool: Rc<RefCell<BufferPool>>,
-}
-
-impl Buffer {
-    fn new(buf: Vec<u8>, pool: Rc<RefCell<BufferPool>>) -> Buffer {
-        Buffer { buf: buf, pool: pool }
-    }
 }
 
 impl AsRef<[u8]> for Buffer {
@@ -66,7 +60,7 @@ impl Drop for Buffer {
         let vec = ::std::mem::replace(&mut self.buf, Vec::with_capacity(0));
         let waiting = self.pool.borrow_mut().waiting.take();
         match waiting {
-            Some(fulfiller) => fulfiller.fulfill(Buffer::new(vec, self.pool.clone())),
+            Some(fulfiller) => fulfiller.fulfill(Buffer { buf: vec, pool: self.pool.clone() }),
             None => self.pool.borrow_mut().buffers.push(vec),
         }
     }
@@ -79,16 +73,17 @@ impl BufferPool {
 
     /// Retrieves a buffer from the pool, waiting until one is available if there are none
     /// already available. Fails if another task is already waiting for a buffer.
-    pub fn pop(pool: &Rc<RefCell<BufferPool>>) -> Promise<Buffer, ()> {
-        let maybe_buf = pool.borrow_mut().buffers.pop();
-        match maybe_buf {
-            Some(buf) => Promise::ok(Buffer::new(buf, pool.clone())),
+    pub fn pop(pool: &Rc<RefCell<BufferPool>>) -> Promise<Buffer, ::std::io::Error> {
+        let &mut BufferPool { ref mut buffers, ref mut waiting } = &mut *pool.borrow_mut();
+        match buffers.pop() {
+            Some(buf) => Promise::ok(Buffer { buf: buf, pool: pool.clone() }),
             None => {
-                if pool.borrow().waiting.is_some() {
-                    Promise::err(())
+                if waiting.is_some() {
+                    Promise::err(::std::io::Error::new(::std::io::ErrorKind::Other,
+                                                       "another client is already waiting"))
                 } else {
                     let (promise, fulfiller) = Promise::and_fulfiller();
-                    pool.borrow_mut().waiting = Some(fulfiller);
+                    *waiting = Some(fulfiller);
                     promise
                 }
             }
@@ -128,8 +123,7 @@ fn accept_loop(mut listener: gjio::SocketListener,
                buffer_pool: Rc<RefCell<BufferPool>>)
                -> Promise<(), ::std::io::Error>
 {
-    let buf_promise = BufferPool::pop(&buffer_pool).map_err(|()| unreachable!());
-    buf_promise.then(move |buf| {
+    BufferPool::pop(&buffer_pool).then(move |buf| {
         listener.accept().then(move |stream| {
             task_set.add(echo(stream, buf));
             accept_loop(listener, task_set, buffer_pool)
