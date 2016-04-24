@@ -232,7 +232,6 @@ impl SocketListenerInner {
 
         let reactor2 = reactor.clone();
         let result = reactor.borrow_mut().observers[handle].when_read_done().map(move |_| {
-            println!("accepted!");
             SocketStreamInner::new(reactor2, stream)
         });
 
@@ -319,10 +318,8 @@ impl SocketStreamInner {
 
 
         let result = reactor.borrow_mut().observers[handle].when_read_done().then(move |n| {
-            println!("read transferred this many bytes: {}", n);
             let total_read = n as usize + already_read;
             if n == 0 {
-                println!("EOF");
                 Promise::ok((buf, total_read))
             } else {
                 SocketStreamInner::try_read_internal(inner2, buf, total_read, min_bytes)
@@ -356,10 +353,9 @@ impl SocketStreamInner {
         };
 
         let result = reactor.borrow_mut().observers[handle].when_write_done().then(move |n| {
-            println!("write transferred this many bytes: {}", n);
             let total_written = n as usize + already_written;
             if n == 0 {
-                println!("wrote zero bytes!?");
+                // TODO: do we need to handle this specially?
             }
 
             SocketStreamInner::write_internal(inner2, buf, total_written)
