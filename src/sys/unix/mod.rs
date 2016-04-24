@@ -259,6 +259,15 @@ impl SocketStreamInner {
             SocketStreamInner::new(reactor, handle1, fd1)))
     }
 
+    pub fn wrap_raw_socket_descriptor(reactor: Rc<RefCell<Reactor>>, fd: RawFd)
+                    -> Result<SocketStreamInner, ::std::io::Error>
+    {
+        try_syscall!(::nix::fcntl::fcntl(fd, ::nix::fcntl::FcntlArg::F_SETFL(::nix::fcntl::O_NONBLOCK)));
+        let handle = try!(reactor.borrow_mut().new_observer(fd));
+
+        Ok(SocketStreamInner::new(reactor, handle, fd))
+    }
+
     pub fn try_read_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
                             mut buf: T,
                             mut already_read: usize,

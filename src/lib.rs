@@ -122,7 +122,7 @@ impl <T> AsRef<[u8]> for Slice<T> where T: AsRef<[u8]> {
 }
 
 #[cfg(unix)]
-type RawDescriptor = ::std::os::unix::io::RawFd;
+pub type RawDescriptor = ::std::os::unix::io::RawFd;
 
 #[cfg(unix)]
 type SocketAddressInner = sys::unix::SocketAddressInner;
@@ -191,6 +191,12 @@ impl Network {
     pub fn new_socket_pair(&self) -> Result<(SocketStream, SocketStream), ::std::io::Error> {
         let (inner0, inner1) = try!(SocketStreamInner::new_pair(self.reactor.clone()));
         Ok((SocketStream::new(inner0), SocketStream::new(inner1)))
+    }
+
+    #[cfg(unix)]
+    pub fn wrap_raw_socket_descriptor(&self, fd: RawDescriptor) -> Result<SocketStream, ::std::io::Error> {
+        let inner = try!(SocketStreamInner::wrap_raw_socket_descriptor(self.reactor.clone(), fd));
+        Ok(SocketStream::new(inner))
     }
 }
 
