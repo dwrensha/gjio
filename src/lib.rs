@@ -166,6 +166,7 @@ impl gj::EventPort<::std::io::Error> for EventPort {
     }
 }
 
+#[derive(Clone)]
 pub struct Network {
     reactor: Rc<RefCell<::sys::Reactor>>,
 }
@@ -194,9 +195,24 @@ impl Network {
     }
 
     #[cfg(unix)]
-    pub fn wrap_raw_socket_descriptor(&self, fd: RawDescriptor) -> Result<SocketStream, ::std::io::Error> {
+    pub unsafe fn wrap_raw_socket_descriptor(&self, fd: RawDescriptor)
+                                             -> Result<SocketStream, ::std::io::Error>
+    {
         let inner = try!(SocketStreamInner::wrap_raw_socket_descriptor(self.reactor.clone(), fd));
         Ok(SocketStream::new(inner))
+    }
+
+    /// Creates a new thread and sets up a socket pair that can be used to communicate with it.
+    /// Passes one of the sockets to the thread's start function and returns the other socket.
+    /// The new thread will already have an active event loop when `start_func` is called.
+    #[cfg(unix)]
+    pub fn socket_spawn<F>(&self, start_func: F)
+                           -> Result<(::std::thread::JoinHandle<()>, SocketStream), Box<::std::error::Error>>
+        where F: FnOnce(SocketStream, &::gj::WaitScope, EventPort) -> Result<(), Box<::std::error::Error>>,
+              F: Send + 'static
+    {
+        let (join_handle, inner) = try!(SocketStreamInner::socket_spawn(self.reactor.clone(), start_func));
+        Ok((join_handle, SocketStream::new(inner)))
     }
 }
 

@@ -268,6 +268,30 @@ impl SocketStreamInner {
         Ok(SocketStreamInner::new(reactor, handle, fd))
     }
 
+    pub fn socket_spawn<F>(reactor: Rc<RefCell<Reactor>>, start_func: F)
+                           -> Result<(::std::thread::JoinHandle<()>, SocketStreamInner), Box<::std::error::Error>>
+        where F: FnOnce(::SocketStream, &::gj::WaitScope, ::EventPort) -> Result<(), Box<::std::error::Error>>,
+              F: Send + 'static
+    {
+        use nix::sys::socket::{socketpair, AddressFamily, SockType, SOCK_CLOEXEC, SOCK_NONBLOCK};
+
+        let (fd0, fd1) =
+            try_syscall!(socketpair(AddressFamily::Unix, SockType::Stream, 0, SOCK_NONBLOCK | SOCK_CLOEXEC));
+
+        let handle0 = try!(reactor.borrow_mut().new_observer(fd0));
+
+        let join_handle = ::std::thread::spawn(move || {
+            let _result = ::gj::EventLoop::top_level(move |wait_scope| {
+                let event_port = try!(::EventPort::new());
+                let network = event_port.get_network();
+                let socket_stream = try!(unsafe { network.wrap_raw_socket_descriptor(fd1) });
+                start_func(socket_stream, &wait_scope, event_port)
+            });
+        });
+
+        Ok((join_handle, SocketStreamInner::new(reactor, handle0, fd0)))
+    }
+
     pub fn try_read_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
                             mut buf: T,
                             mut already_read: usize,
