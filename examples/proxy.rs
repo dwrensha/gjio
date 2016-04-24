@@ -41,7 +41,7 @@ fn forward<R,W,B>(mut src: R, mut dst: W, buf: B) -> Promise<(), ::std::io::Erro
     })
 }
 
-fn accept_loop(mut receiver: gjio::SocketListener,
+fn accept_loop(receiver: gjio::SocketListener,
                outbound_addr: gjio::SocketAddress,
                timer: gjio::Timer,
                mut task_set: gj::TaskSet<(), ::std::io::Error>)

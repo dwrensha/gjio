@@ -119,7 +119,7 @@ impl TaskReaper<(), ::std::io::Error> for Reaper {
 
 /// Waits for a buffer from the pool, accepts a connection, then spawns an echo() task on that
 /// connection with that buffer.
-fn accept_loop(mut listener: gjio::SocketListener,
+fn accept_loop(listener: gjio::SocketListener,
                mut task_set: TaskSet<(), ::std::io::Error>,
                buffer_pool: Rc<RefCell<BufferPool>>)
                -> Promise<(), ::std::io::Error>

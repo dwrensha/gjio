@@ -32,7 +32,7 @@ fn hello() {
         let network = event_port.get_network();
         let addr = ::std::str::FromStr::from_str("127.0.0.1:10000").unwrap();
         let mut address = network.get_tcp_address(addr);
-        let mut listener = try!(address.listen());
+        let listener = try!(address.listen());
 
         let _write_promise = listener.accept().then(move |mut stream| {
             stream.write(vec![0,1,2,3,4,5])
@@ -57,7 +57,7 @@ fn echo() {
         let network = event_port.get_network();
         let addr = ::std::str::FromStr::from_str("127.0.0.1:10001").unwrap();
         let mut address = network.get_tcp_address(addr);
-        let mut listener = try!(address.listen());
+        let listener = try!(address.listen());
 
         let _server_promise = listener.accept().then(move |mut stream| {
             stream.read(vec![0u8; 6], 6).lift().then(move |( mut v, _)| {
