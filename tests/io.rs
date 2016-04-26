@@ -82,7 +82,7 @@ fn echo() {
 }
 
 #[test]
-fn timers() {
+fn timers_ordering() {
     use std::rc::Rc;
     use std::cell::Cell;
 
@@ -113,13 +113,44 @@ fn timers() {
             Ok(())
         });
 
-
         try!(Promise::all(vec![p1,p2,p3].into_iter()).wait(wait_scope, &mut event_port));
 
         assert_eq!(counter.get(), 3);
         Ok(())
     }).expect("top_level");
 }
+
+#[test]
+fn timer_cancelation() {
+    use std::rc::Rc;
+    use std::cell::Cell;
+
+    EventLoop::top_level(|wait_scope| -> Result<(), ::std::io::Error> {
+        let mut event_port = try!(gjio::EventPort::new());
+        let timer = event_port.get_timer();
+
+        let executed = Rc::new(Cell::new(false));
+        let executed1 = executed.clone();
+
+        let p1 = timer.after_delay(::std::time::Duration::from_millis(100)).map(move |()| {
+            executed1.set(true);
+            Ok(())
+        });
+
+        let p2 = timer.after_delay(::std::time::Duration::from_millis(1));
+        let p3 = timer.after_delay(::std::time::Duration::from_millis(200));
+
+        assert_eq!(executed.get(), false);
+        try!(p2.wait(wait_scope, &mut event_port));
+        assert_eq!(executed.get(), false);
+        drop(p1);
+        try!(p3.wait(wait_scope, &mut event_port));
+        assert_eq!(executed.get(), false);
+
+        Ok(())
+    }).expect("top_level");
+}
+
 
 /*
 #[cfg(unix)]
