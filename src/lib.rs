@@ -47,7 +47,7 @@
 //!         let network = event_port.get_network();
 //!         let mut listen_address = network.get_tcp_address(
 //!             ::std::str::FromStr::from_str("127.0.0.1:0").unwrap());
-//!         let mut listener = try!(listen_address.listen());
+//!         let listener = try!(listen_address.listen());
 //!         let connect_address = network.get_tcp_address(try!(listener.local_addr()));
 //!
 //!         let promise1 = listener.accept().then(move |stream| {
