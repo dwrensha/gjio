@@ -89,7 +89,7 @@ mod sys;
 /// A nonblocking input bytestream.
 pub trait AsyncRead {
     /// Attempts to read `buf.len()` bytes from the stream, writing them into `buf`.
-    /// Returns `the modified `buf`,and the number of bytes actually read.
+    /// Returns the modified `buf`,and the number of bytes actually read.
     /// Returns as soon as `min_bytes` are read or EOF is encountered.
     fn try_read<T>(&mut self, buf: T, min_bytes: usize) -> Promise<(T, usize), ::std::io::Error>
         where T: AsMut<[u8]>;
