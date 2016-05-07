@@ -71,12 +71,15 @@
 //! ```
 
 
-#[macro_use] extern crate gj;
+#[macro_use]
+extern crate gj;
+
 extern crate time;
 
+#[cfg(unix)]
 extern crate nix;
 
-#[cfg(target_os = "windows")]
+#[cfg(windows)]
 extern crate miow;
 
 #[cfg(target_os = "windows")]
