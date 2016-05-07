@@ -75,7 +75,11 @@
 extern crate time;
 
 extern crate nix;
+
+#[cfg(target_os = "windows")]
 extern crate miow;
+
+#[cfg(target_os = "windows")]
 extern crate net2;
 
 use std::cell::{RefCell};

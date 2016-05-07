@@ -15,5 +15,7 @@ keywords = ["promise", "async", "io"]
 gj = "0.2"
 time = "0.1"
 nix = "0.5"
+
+[target.'cfg(windows)'.dependencies]
 miow = "0.1"
 net2 = "0.2.23"
