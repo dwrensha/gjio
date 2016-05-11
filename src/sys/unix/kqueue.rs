@@ -42,17 +42,25 @@ impl Reactor {
     pub fn run_once(&mut self, maybe_timeout: Option<::time::Duration>)
                     -> Result<(), ::std::io::Error>
     {
-        let timeout = match maybe_timeout {
-            Some(t) if t > ::time::Duration::zero() => t.num_milliseconds() as usize,
-            _ => 0,
-        };
+        use std::{cmp, usize};
 
         let events = unsafe {
             let ptr = (&mut self.events[..]).as_mut_ptr();
             ::std::slice::from_raw_parts_mut(ptr, self.events.capacity())
         };
 
-        let n = try_syscall!(event::kevent(self.kq, &[], events, timeout));
+        let n = match maybe_timeout {
+            None => {
+                // Sadly, nix's usual kevent() function does not let us say "no timeout", so we have to
+                // use this alternate version, which takes an `Option<timespec>`.
+                try_syscall!(event::kevent_ts(self.kq, &[], events, None))
+            }
+            Some(t) => {
+                // TODO: Think harder about overflow possibilities here.
+                let millis = cmp::min(t.num_milliseconds() as u64, usize::MAX as u64) as usize;
+                try_syscall!(event::kevent(self.kq, &[], events, millis))
+            }
+        };
 
         unsafe { self.events.set_len(n); }
 
