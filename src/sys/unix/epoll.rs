@@ -59,7 +59,6 @@ impl Reactor {
         for event in &self.events {
             let handle = Handle { val: event.data as usize };
 
-
             if event.events.contains(epoll::EPOLLIN) || event.events.contains(epoll::EPOLLHUP) ||
                event.events.contains(epoll::EPOLLERR)
             {
