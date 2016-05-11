@@ -59,6 +59,7 @@ impl Reactor {
         for event in &self.events {
             let handle = Handle { val: event.data as usize };
 
+
             if event.events.contains(epoll::EPOLLIN) || event.events.contains(epoll::EPOLLHUP) ||
                event.events.contains(epoll::EPOLLERR)
             {
@@ -89,7 +90,7 @@ impl Reactor {
         let handle = self.observers.push(observer);
 
         let info = epoll::EpollEvent {
-            events: epoll::EPOLLIN | epoll::EPOLLOUT,
+            events: epoll::EPOLLIN | epoll::EPOLLOUT | epoll::EPOLLET,
             data: handle.val as u64
         };
 
