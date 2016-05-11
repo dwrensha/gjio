@@ -148,6 +148,6 @@ pub fn main() {
         let mut address = network.get_tcp_address(addr);
         let listener = try!(address.listen());
         let reaper = Box::new(Reaper);
-        accept_loop(listener, TaskSet::new(reaper), buffer_pool).lift().wait(wait_scope, &mut event_port)
+        accept_loop(listener, TaskSet::new(reaper), buffer_pool).wait(wait_scope, &mut event_port)
     }).expect("top level");
 }
