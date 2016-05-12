@@ -1,11 +1,9 @@
 environment:
   matrix:
-#  - TARGET: x86_64-pc-windows-msvc
-#  - TARGET: i686-pc-windows-msvc
-  - TARGET: i686-pc-windows-gnu
+  - TARGET: 1.8.0-x86_64-pc-windows-gnu
 install:
-  - ps: Start-FileDownload "https://static.rust-lang.org/dist/rust-nightly-${env:TARGET}.exe"
-  - rust-nightly-%TARGET%.exe /VERYSILENT /NORESTART /DIR="C:\Program Files (x86)\Rust"
+  - ps: Start-FileDownload "https://static.rust-lang.org/dist/rust-${env:TARGET}.exe"
+  - rust-%TARGET%.exe /VERYSILENT /NORESTART /DIR="C:\Program Files (x86)\Rust"
   - SET PATH=%PATH%;C:\Program Files (x86)\Rust\bin
   - SET PATH=%PATH%;C:\MinGW\bin
   - rustc -V
@@ -14,4 +12,5 @@ install:
 build: false
 
 test_script:
+  - SET RUST_BACKTRACE=1
   - cargo test
