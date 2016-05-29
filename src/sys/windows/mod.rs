@@ -256,7 +256,7 @@ impl Drop for SocketStreamInner {
 }
 
 impl SocketStreamInner {
-    fn new(reactor: Rc<RefCell<Reactor>>, stream: ::std::net::TcpStream)
+    pub fn new(reactor: Rc<RefCell<Reactor>>, stream: ::std::net::TcpStream)
            -> Result<SocketStreamInner, ::std::io::Error>
     {
         let mut read_overlapped = Box::new(::miow::Overlapped::zero());
