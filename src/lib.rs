@@ -247,7 +247,7 @@ impl Network {
     /// because the caller needs to ensure that the descriptor is valid and not owned by anyone else.
     ///
     /// A safer (and windows-compatible) way to transform a `TcpStream` into a `SocketStream` is via
-    /// `from_std_tcp_stream`.
+    /// `wrap_std_tcp_stream`.
     pub unsafe fn wrap_raw_socket_descriptor(&self, fd: RawDescriptor)
                                              -> Result<SocketStream, ::std::io::Error>
     {
