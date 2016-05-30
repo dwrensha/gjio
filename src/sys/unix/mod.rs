@@ -57,6 +57,14 @@ pub type Reactor = kqueue::Reactor;
 #[cfg(target_os = "linux")]
 pub type Reactor = epoll::Reactor;
 
+pub struct AutoCloseFd(RawFd);
+
+impl Drop for AutoCloseFd {
+    fn drop(&mut self) {
+        let _ = ::nix::unistd::close(self.0);
+    }
+}
+
 pub struct FdObserver {
     read_fulfiller: Option<PromiseFulfiller<(), ::std::io::Error>>,
     write_fulfiller: Option<PromiseFulfiller<(), ::std::io::Error>>,
@@ -107,10 +115,11 @@ impl SocketAddressInner {
         let addr = self.addr;
         Promise::ok(()).then(move |()| {
             let reactor = reactor;
-            let fd = pry!(::nix::sys::socket::socket(addr.family(), ::nix::sys::socket::SockType::Stream,
-                                                     ::nix::sys::socket::SOCK_NONBLOCK, 0));
+            let fd = AutoCloseFd(pry!(::nix::sys::socket::socket(addr.family(),
+                                                                 ::nix::sys::socket::SockType::Stream,
+                                                                 ::nix::sys::socket::SOCK_NONBLOCK, 0)));
             loop {
-                match ::nix::sys::socket::connect(fd, &addr) {
+                match ::nix::sys::socket::connect(fd.0, &addr) {
                     Ok(()) => break,
                     Err(e) if e.errno() == ::nix::Errno::EINTR => continue,
                     Err(e) if e.errno() == ::nix::Errno::EINPROGRESS => break,
@@ -118,7 +127,7 @@ impl SocketAddressInner {
                 }
             }
 
-            let handle = pry!(reactor.borrow_mut().new_observer(fd));
+            let handle = pry!(reactor.borrow_mut().new_observer(fd.0));
 
             // TODO: if we're not already connected, maybe only register writable interest,
             // and then reregister with read/write interested once we successfully connect.
@@ -127,7 +136,7 @@ impl SocketAddressInner {
             promise.map(move |()| {
 
                 let errno = try_syscall!(::nix::sys::socket::getsockopt(
-                    fd,
+                    fd.0,
                     ::nix::sys::socket::sockopt::SocketError));
                 if errno != 0 {
                     Err(::std::io::Error::from_raw_os_error(errno))
@@ -140,16 +149,15 @@ impl SocketAddressInner {
 
     pub fn listen(&mut self) -> Result<SocketListenerInner, ::std::io::Error>
     {
-        let fd = try!(socket::socket(self.addr.family(), socket::SockType::Stream,
+        let fd = AutoCloseFd(try!(socket::socket(self.addr.family(), socket::SockType::Stream,
                                                  socket::SOCK_NONBLOCK | socket::SOCK_CLOEXEC,
-                                                 0));
+                                                 0)));
 
-        try_syscall!(socket::setsockopt(fd, socket::sockopt::ReuseAddr, &true));
-        try_syscall!(socket::bind(fd, &self.addr));
-        try_syscall!(socket::listen(fd, 1024));
+        try_syscall!(socket::setsockopt(fd.0, socket::sockopt::ReuseAddr, &true));
+        try_syscall!(socket::bind(fd.0, &self.addr));
+        try_syscall!(socket::listen(fd.0, 1024));
 
-
-        let handle = try!(self.reactor.borrow_mut().new_observer(fd));
+        let handle = try!(self.reactor.borrow_mut().new_observer(fd.0));
         Ok(SocketListenerInner::new(self.reactor.clone(), handle, fd))
     }
 }
@@ -157,19 +165,18 @@ impl SocketAddressInner {
 pub struct SocketListenerInner {
     reactor: Rc<RefCell<Reactor>>,
     handle: Handle,
-    descriptor: RawFd,
+    descriptor: AutoCloseFd,
     pub queue: Option<Promise<(),()>>,
 }
 
 impl Drop for SocketListenerInner {
     fn drop(&mut self) {
-        let _ = ::nix::unistd::close(self.descriptor);
         self.reactor.borrow_mut().observers.remove(self.handle);
     }
 }
 
 impl SocketListenerInner {
-    fn new(reactor: Rc<RefCell<::sys::Reactor>>, handle: Handle, descriptor: RawFd)
+    fn new(reactor: Rc<RefCell<::sys::Reactor>>, handle: Handle, descriptor: AutoCloseFd)
            -> SocketListenerInner
     {
         SocketListenerInner {
@@ -181,7 +188,7 @@ impl SocketListenerInner {
     }
 
     pub fn local_addr(&self) -> Result<::std::net::SocketAddr, ::std::io::Error> {
-        match try_syscall!(socket::getsockname(self.descriptor)) {
+        match try_syscall!(socket::getsockname(self.descriptor.0)) {
             socket::SockAddr::Inet(inet_addr) => Ok(inet_addr.to_std()),
             _ => Err(::std::io::Error::new(::std::io::ErrorKind::Other,
                                            "cannot take local_addr of a non-inet socket")),
@@ -191,13 +198,14 @@ impl SocketListenerInner {
     pub fn accept_internal(inner: Rc<RefCell<SocketListenerInner>>)
                        -> Promise<SocketStreamInner, ::std::io::Error>
     {
-        let fd = inner.borrow_mut().descriptor;
+        let fd = inner.borrow_mut().descriptor.0;
         loop {
             match ::nix::sys::socket::accept4(fd, socket::SOCK_NONBLOCK | socket::SOCK_CLOEXEC) {
                 Ok(fd) => {
+                    let new_fd = AutoCloseFd(fd);
                     let reactor = inner.borrow().reactor.clone();
-                    let handle = pry!(reactor.borrow_mut().new_observer(fd));
-                    return Promise::ok(SocketStreamInner::new(reactor, handle, fd));
+                    let handle = pry!(reactor.borrow_mut().new_observer(new_fd.0));
+                    return Promise::ok(SocketStreamInner::new(reactor, handle, new_fd));
                 }
                 Err(e) => {
                     match e.errno() {
@@ -229,7 +237,7 @@ impl SocketListenerInner {
 pub struct SocketStreamInner {
     reactor: Rc<RefCell<Reactor>>,
     handle: Handle,
-    descriptor: RawFd,
+    descriptor: AutoCloseFd,
 
     pub read_queue: Option<Promise<(),()>>,
     pub write_queue: Option<Promise<(),()>>,
@@ -237,13 +245,12 @@ pub struct SocketStreamInner {
 
 impl Drop for SocketStreamInner {
     fn drop(&mut self) {
-        let _ = ::nix::unistd::close(self.descriptor);
         self.reactor.borrow_mut().observers.remove(self.handle);
     }
 }
 
 impl SocketStreamInner {
-    fn new(reactor: Rc<RefCell<Reactor>>, handle: Handle, descriptor: RawFd) -> SocketStreamInner {
+    fn new(reactor: Rc<RefCell<Reactor>>, handle: Handle, descriptor: AutoCloseFd) -> SocketStreamInner {
         SocketStreamInner {
                 reactor: reactor,
                 handle: handle,
@@ -260,8 +267,9 @@ impl SocketStreamInner {
                                                          socket::SockType::Stream,
                                                          0,
                                                          socket::SOCK_NONBLOCK | socket::SOCK_CLOEXEC));
-        let handle0 = try!(reactor.borrow_mut().new_observer(fd0));
-        let handle1 = try!(reactor.borrow_mut().new_observer(fd1));
+        let (fd0, fd1) = (AutoCloseFd(fd0), AutoCloseFd(fd1));
+        let handle0 = try!(reactor.borrow_mut().new_observer(fd0.0));
+        let handle1 = try!(reactor.borrow_mut().new_observer(fd1.0));
         Ok((SocketStreamInner::new(reactor.clone(), handle0, fd0),
             SocketStreamInner::new(reactor, handle1, fd1)))
     }
@@ -269,8 +277,9 @@ impl SocketStreamInner {
     pub fn wrap_raw_socket_descriptor(reactor: Rc<RefCell<Reactor>>, fd: RawFd)
                     -> Result<SocketStreamInner, ::std::io::Error>
     {
-        try_syscall!(::nix::fcntl::fcntl(fd, ::nix::fcntl::FcntlArg::F_SETFL(::nix::fcntl::O_NONBLOCK)));
-        let handle = try!(reactor.borrow_mut().new_observer(fd));
+        let fd = AutoCloseFd(fd);
+        try_syscall!(::nix::fcntl::fcntl(fd.0, ::nix::fcntl::FcntlArg::F_SETFL(::nix::fcntl::O_NONBLOCK)));
+        let handle = try!(reactor.borrow_mut().new_observer(fd.0));
 
         Ok(SocketStreamInner::new(reactor, handle, fd))
     }
@@ -284,14 +293,17 @@ impl SocketStreamInner {
 
         let (fd0, fd1) =
             try_syscall!(socketpair(AddressFamily::Unix, SockType::Stream, 0, SOCK_NONBLOCK | SOCK_CLOEXEC));
+        let (fd0, fd1) = (AutoCloseFd(fd0), AutoCloseFd(fd1));
 
-        let handle0 = try!(reactor.borrow_mut().new_observer(fd0));
+        let handle0 = try!(reactor.borrow_mut().new_observer(fd0.0));
 
         let join_handle = ::std::thread::spawn(move || {
             let _result = ::gj::EventLoop::top_level(move |wait_scope| {
                 let event_port = try!(::EventPort::new());
                 let network = event_port.get_network();
-                let socket_stream = try!(unsafe { network.wrap_raw_socket_descriptor(fd1) });
+                let handle1 = try!(network.reactor.borrow_mut().new_observer(fd1.0));
+                let socket_stream = ::SocketStream::new(SocketStreamInner::new(network.reactor.clone(),
+                                                                               handle1, fd1));
                 start_func(socket_stream, &wait_scope, event_port)
             });
         });
@@ -307,7 +319,7 @@ impl SocketStreamInner {
         where T: AsMut<[u8]>
     {
         while already_read < min_bytes {
-            let descriptor = inner.borrow().descriptor;
+            let descriptor = inner.borrow().descriptor.0;
             match ::nix::unistd::read(descriptor, &mut buf.as_mut()[already_read..]) {
                 Ok(0) => {
                     // EOF
@@ -349,7 +361,7 @@ impl SocketStreamInner {
         where T: AsRef<[u8]>
     {
         while already_written < buf.as_ref().len() {
-            let descriptor = inner.borrow().descriptor;
+            let descriptor = inner.borrow().descriptor.0;
             match ::nix::unistd::write(descriptor, &buf.as_ref()[already_written..]) {
                 Ok(n) => {
                     already_written += n;
