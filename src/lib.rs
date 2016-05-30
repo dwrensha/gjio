@@ -223,7 +223,7 @@ impl Network {
 
     #[cfg(unix)]
     /// Transforms the `std::net::TcpStream` into a `SocketStream`.
-    pub fn from_std_tcp_stream(&self, stream: ::std::net::TcpStream)
+    pub fn wrap_std_tcp_stream(&self, stream: ::std::net::TcpStream)
                                -> Result<SocketStream, ::std::io::Error>
     {
         unsafe {
@@ -234,7 +234,7 @@ impl Network {
 
     #[cfg(target_os = "windows")]
     /// Transforms the `std::net::TcpStream` into a `SocketStream`.
-    pub fn from_std_tcp_stream(&self, stream: ::std::net::TcpStream)
+    pub fn wrap_std_tcp_stream(&self, stream: ::std::net::TcpStream)
                                -> Result<SocketStream, ::std::io::Error>
     {
         let inner = try!(SocketStreamInner::new(self.reactor.clone(), stream));
@@ -242,8 +242,9 @@ impl Network {
     }
 
     #[cfg(unix)]
-    /// Wraps a raw file descriptor into a `SocketStream`. This is unsafe because the `SocketStream`
-    /// assumes ownership over the descriptor, and will close it when the `SocketStream` is dropped.
+    /// Wraps a raw file descriptor into a `SocketStream`. The `SocketStream` assumes ownership over
+    /// the descriptor and will close it when the `SocketStream` is dropped. This method is `unsafe`
+    /// because the caller needs to ensure that the descriptor is valid and not owned by anyone else.
     ///
     /// A safer (and windows-compatible) way to transform a `TcpStream` into a `SocketStream` is via
     /// `from_std_tcp_stream`.
