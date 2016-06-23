@@ -488,6 +488,7 @@ impl TimerInner {
 }
 
 /// Allows scheduling of timeouts.
+#[derive(Clone)]
 pub struct Timer {
     inner: Rc<RefCell<TimerInner>>,
 }
