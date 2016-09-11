@@ -233,7 +233,6 @@ impl SocketListenerInner {
 
 }
 
-
 pub struct SocketStreamInner {
     reactor: Rc<RefCell<Reactor>>,
     handle: Handle,
@@ -309,6 +308,18 @@ impl SocketStreamInner {
         });
 
         Ok((join_handle, SocketStreamInner::new(reactor, handle0, fd0)))
+    }
+
+    pub fn shutdown(inner: &Rc<RefCell<SocketStreamInner>>, how: ::std::net::Shutdown)
+                    -> Result<(), ::std::io::Error>
+    {
+        let nix_how = match how {
+            ::std::net::Shutdown::Read => ::nix::sys::socket::Shutdown::Read,
+            ::std::net::Shutdown::Write => ::nix::sys::socket::Shutdown::Write,
+            ::std::net::Shutdown::Both => ::nix::sys::socket::Shutdown::Both,
+        };
+
+        ::nix::sys::socket::shutdown(inner.borrow().descriptor.0, nix_how).map_err(|e| e.into())
     }
 
     pub fn try_read_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,

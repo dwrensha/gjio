@@ -292,6 +292,12 @@ impl SocketStreamInner {
         }
     }
 
+    pub fn shutdown(inner: &Rc<RefCell<SocketStreamInner>>, how: ::std::net::Shutdown)
+                    -> Result<(), ::std::io::Error>
+    {
+        inner.borrow_mut().stream.shutdown(how)
+    }
+
     pub fn try_read_internal<T>(inner: Rc<RefCell<SocketStreamInner>>,
                                 mut buf: T,
                                 already_read: usize,

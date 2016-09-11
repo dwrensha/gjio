@@ -27,12 +27,12 @@ use std::net::ToSocketAddrs;
 use gjio::{AsyncRead, AsyncWrite};
 use gj::{EventLoop, Promise};
 
-fn forward<R,W,B>(mut src: R, mut dst: W, buf: B) -> Promise<(), ::std::io::Error>
+fn forward<R,W,B>(mut src: R, mut dst: W, buf: B) -> Promise<(R, W), ::std::io::Error>
     where R: AsyncRead + 'static, W: AsyncWrite + 'static, B: AsMut<[u8]> + AsRef<[u8]> + 'static
 {
     src.try_read(buf, 1).then(move |(buf, n)| {
         if n == 0 { // EOF
-            Promise::ok(())
+            Promise::ok((src, dst))
         } else {
             dst.write(gjio::BufferPrefix::new(buf, n)).then(move |prefix| {
                 forward(src, dst, prefix.buf)
@@ -53,8 +53,12 @@ fn accept_loop(receiver: gjio::SocketListener,
         timer.timeout_after(::std::time::Duration::from_secs(3), outbound_addr.connect())
            .then_else(move |r| match r {
                Ok(dst_stream) =>  {
-                   task_set.add(forward(src_stream.clone(), dst_stream.clone(), vec![0; 1024]));
-                   task_set.add(forward(dst_stream.clone(), src_stream.clone(), vec![0; 1024]));
+                   let task1 = forward(src_stream.clone(), dst_stream.clone(), vec![0; 1024])
+                       .map(|(src, mut dst)| dst.shutdown(::std::net::Shutdown::Write));
+                   let task2 =
+                       forward(dst_stream.clone(), src_stream.clone(), vec![0; 1024]).map(|_| Ok(()))
+                   task_set.add(task1);
+                   task_set.add(task2);
                    accept_loop(receiver, outbound_addr, timer, task_set)
                }
                Err(e) => {

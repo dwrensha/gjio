@@ -361,6 +361,10 @@ impl SocketStream {
     fn new(inner: SocketStreamInner) -> SocketStream {
         SocketStream { inner: Rc::new(RefCell::new(inner)) }
     }
+
+    pub fn shutdown(&mut self, how: ::std::net::Shutdown) -> Result<(), ::std::io::Error> {
+        SocketStreamInner::shutdown(&self.inner, how)
+    }
 }
 
 
