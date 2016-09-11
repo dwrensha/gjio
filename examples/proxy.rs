@@ -53,12 +53,12 @@ fn accept_loop(receiver: gjio::SocketListener,
         timer.timeout_after(::std::time::Duration::from_secs(3), outbound_addr.connect())
            .then_else(move |r| match r {
                Ok(dst_stream) =>  {
-                   let task1 = forward(src_stream.clone(), dst_stream.clone(), vec![0; 1024])
-                       .map(|(_src, mut dst)| dst.shutdown(::std::net::Shutdown::Write));
-                   let task2 =
-                       forward(dst_stream.clone(), src_stream.clone(), vec![0; 1024]).map(|_| Ok(()));
-                   task_set.add(task1);
-                   task_set.add(task2);
+                   task_set.add(
+                       forward(src_stream.clone(), dst_stream.clone(), vec![0; 1024])
+                           .map(|(_src, mut dst)| dst.shutdown(::std::net::Shutdown::Write)));
+                   task_set.add(
+                       forward(dst_stream.clone(), src_stream.clone(), vec![0; 1024])
+                           .map(|_| Ok(())));
                    accept_loop(receiver, outbound_addr, timer, task_set)
                }
                Err(e) => {
