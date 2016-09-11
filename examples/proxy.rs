@@ -54,9 +54,9 @@ fn accept_loop(receiver: gjio::SocketListener,
            .then_else(move |r| match r {
                Ok(dst_stream) =>  {
                    let task1 = forward(src_stream.clone(), dst_stream.clone(), vec![0; 1024])
-                       .map(|(src, mut dst)| dst.shutdown(::std::net::Shutdown::Write));
+                       .map(|(_src, mut dst)| dst.shutdown(::std::net::Shutdown::Write));
                    let task2 =
-                       forward(dst_stream.clone(), src_stream.clone(), vec![0; 1024]).map(|_| Ok(()))
+                       forward(dst_stream.clone(), src_stream.clone(), vec![0; 1024]).map(|_| Ok(()));
                    task_set.add(task1);
                    task_set.add(task2);
                    accept_loop(receiver, outbound_addr, timer, task_set)
