@@ -5,7 +5,7 @@ authors = ["David Renshaw <david@sandstorm.io>"]
 license = "MIT"
 description = "Asynchronous input and output."
 repository = "https://github.com/dwrensha/gjio"
-documentation = "http://docs.capnproto-rust.org/gjio/"
+documentation = "https://docs.rs/gjio/0.1.3/gjio/"
 
 readme = "README.md"
 
