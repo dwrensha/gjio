@@ -1,4 +1,9 @@
-# good job, yo
+# good job I/O
+
+WARNING:
+as of the [0.8 relase of capnp-rpc-rust](https://dwrensha.github.io/capnproto-rust/2017/01/04/rpc-futures.html),
+this library is DEPRECATED. Please use [tokio-core](https://github.com/tokio-rs/tokio-core) instead.
+
 Asynchronous input and ouput, built on top
 of the [gj event loop](https://github.com/dwrensha/gj).
 
